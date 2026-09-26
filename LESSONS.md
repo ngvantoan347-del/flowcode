@@ -162,6 +162,12 @@ A probe that tells the model what to do measures the probe. The first check of t
 
 *tags: opencode, logging, grep, false-positive, verification | evidence: unfiltered grep 148 matches; after dropping `spawning process` lines, `429` count 1 and "rate limit" count 2 across 5100 real lines. The 148 figure came from this session's own `Select-String` command echoed into the log. | recorded 2026-09-26 | confidence high*
 
+### A setup whose own plugin fails to load is invisible in normal use
+
+The flow is delivered by a plugin, so a plugin that cannot load is a setup that still starts: the session opens, every agent is registered, and the only thing missing is the injected rules — nothing errors where the user is looking. The plugin imported `@opencode/plugin` at runtime, so a fresh clone with no `npm install` failed with `ERR_MODULE_NOT_FOUND` and lost the whole flow silently, while the same import inside the already-installed directory worked and revealed nothing. The dependency bought nothing at runtime (`define` is `plugin => plugin`, an identity helper that exists for types), so the rule is: a setup delivered by a plugin needs a test that performs the load, not a test that inspects the source. Import the plugin from a temp directory with no `node_modules` above it, and assert every plugin path in the config exists on disk.
+
+*tags: opencode, plugin, onboarding, silent-failure, dependency, testing | evidence: clean clone to %TEMP%\opencode\cleanroom with no node_modules: `import('./plugins/coding-flow.js')` → ERR_MODULE_NOT_FOUND, Cannot find package '@opencode/plugin'. After declaring `define` locally, the same import from a mkdtemp directory with no node_modules in any parent → LOADED id=coding-flow; suite 13/13 in 0.2s with no install step. | recorded 2026-09-26 | confidence high*
+
 ## semantic
 
 ### three.js r128 UMD loads and constructs geometries headlessly in Node
