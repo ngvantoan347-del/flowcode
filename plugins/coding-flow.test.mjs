@@ -69,6 +69,11 @@ describe("coding flow: delivery", () => {
     assert.doesNotMatch(rules, /End every reply/i, "no closing ritual");
     assert.doesNotMatch(rules, /\|\s*-{2,}\s*\|/, "no required table");
     assert.match(rules, /Never announce phases/, "the ban on narrated phases stays");
+    assert.match(
+      rules,
+      /only what a failing check points at/i,
+      "the ban on editing code whose test already passed stays",
+    );
   });
 });
 
