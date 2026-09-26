@@ -36,7 +36,9 @@ const argOf = (name) => {
   return at === -1 ? undefined : process.argv[at + 1];
 };
 const only = argOf("--only");
+const model = argOf("--model");
 const keep = process.argv.includes("--keep");
+const show = process.argv.includes("--show");
 
 function run(command, args, cwd, timeout) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", timeout, shell: WINDOWS, maxBuffer: 16 * 1024 * 1024 });
@@ -64,8 +66,12 @@ const CRITERIA = [
       !/\?\s*$/.test(reply.trim()),
   },
   {
-    name: "no-ceremony",
-    test: (reply) => !/path:\s*SENSE/i.test(reply) && !/\|\s*-{2,}\s*\|/.test(reply),
+    // Only the ceremony the doctrine used to mandate. A table enumerating twelve concrete
+    // file:line fixes is content, not ritual, and banning it would punish the useful case: a
+    // first version of this criterion failed a run that did nothing wrong.
+    name: "no-marker",
+    test: (reply) =>
+      !/path:\s*SENSE/i.test(reply) && !/end every reply/i.test(reply) && !/definition of done/i.test(reply),
   },
   {
     name: "evidence",
@@ -119,7 +125,15 @@ for (const name of names) {
     continue;
   }
 
-  const agent = run(OPENCODE, ["run", "--auto", task], target);
+  const agent = run(OPENCODE, ["run", ...(model ? ["--model", model] : []), "--auto", task], target);
+  // A run that never happened is not a scored failure. Bad model ref, provider down, or a
+  // network error must be reported as a harness error, or the benchmark ends up blaming the
+  // flow for something the flow never saw.
+  const notRun = agent.out.match(/(Model unavailable|model not found|No available (model|provider)|unauthorized|Unauthorized|ECONNREFUSED|fetch failed)/i);
+  if (notRun) {
+    results.push({ name, errored: `the run never started: ${notRun[0]} (is the model ref valid?)` });
+    continue;
+  }
   const after = run(check, [], target, CHECK_TIMEOUT_MS);
   const afterTests = testFiles(target);
   const verdicts = CRITERIA.map((criterion) => [criterion.name, criterion.test(agent.out, expect)]);
@@ -134,6 +148,7 @@ for (const name of names) {
     verdicts,
     tests: afterTests,
     summary: (after.out.match(/(tests|pass|fail)\s+\d+/g) ?? []).slice(0, 3).join(", "),
+    tail: agent.out.trim().split("\n").slice(-16).join("\n"),
     detail: nothingPinned
       ? "the run added no test file, so nothing was pinned"
       : stillFailing
@@ -143,14 +158,18 @@ for (const name of names) {
   });
 }
 
-const invalid = results.filter((r) => r.invalid);
-const scored = results.filter((r) => !r.invalid);
+const invalidFixtures = results.filter((r) => r.invalid);
+const errored = results.filter((r) => r.errored);
+const scored = results.filter((r) => !r.invalid && !r.errored);
 const passed = scored.filter((r) => r.passed);
+// Read the model back out of the transcript rather than printing what was requested: a run that
+// silently fell back to another model must not be scored under the name that was asked for.
+const served = [...new Set(results.map((r) => r.reply?.match(/^>\s*\S+\s+·\s+(\S+)/m)?.[1]).filter(Boolean))];
 
-console.log(`\ncoding-flow eval — ${scored.length} fixture(s)\n`);
+console.log(`\ncoding-flow eval — ${scored.length} fixture(s)${model ? `, model ${model}` : ""}${served.length ? `, served by ${served.join(", ")}` : ""}\n`);
 for (const result of results) {
-  if (result.invalid) {
-    console.log(`  ✖ ${result.name}\n      invalid fixture: ${result.invalid}`);
+  if (result.invalid || result.errored) {
+    console.log(`  ✖ ${result.name}\n      ${result.invalid ? `invalid fixture: ${result.invalid}` : result.errored}`);
     continue;
   }
   const marks = result.verdicts.map(([criterion, ok]) => `${ok ? "✔" : "✖"} ${criterion}`).join("  ");
@@ -160,10 +179,21 @@ for (const result of results) {
   console.log(`  ${result.passed ? "✔" : "✖"} ${result.name}${suffix}`);
   console.log(`      ${marks}`);
   if (result.detail) console.log(`      ${result.detail.replace(/\n/g, "\n      ")}`);
+  // A failure with no evidence attached is not a usable result: the reply is the only place the
+  // reason can be. `--show` prints it even on a pass, which is how you look at a benchmark run.
+  if (!result.passed || show) {
+    console.log("      reply tail:");
+    console.log(result.tail.split("\n").map((line) => `        ${line}`).join("\n"));
+  }
   if (result.error) console.log(`      opencode failed: ${result.error}`);
 }
 
-console.log(`\n${passed.length}/${scored.length} fixtures scored clean${invalid.length ? `, ${invalid.length} invalid` : ""}\n`);
+const notes = [
+  invalidFixtures.length ? `${invalidFixtures.length} invalid fixture${invalidFixtures.length > 1 ? "s" : ""}` : "",
+  errored.length ? `${errored.length} run${errored.length > 1 ? "s" : ""} never started` : "",
+].filter(Boolean);
+
+console.log(`\n${passed.length}/${scored.length} fixtures scored clean${notes.length ? `, ${notes.join(", ")}` : ""}\n`);
 
 if (keep) {
   console.log(`workdir kept: ${workdir}`);
@@ -173,4 +203,4 @@ if (keep) {
 
 // An invalid fixture is a failure of the harness, not a pass. Neither is a run that never
 // produced a reply: a crash must never read as a clean score.
-process.exit(passed.length === scored.length && invalid.length === 0 ? 0 : 1);
+process.exit(passed.length === scored.length && invalidFixtures.length === 0 && errored.length === 0 ? 0 : 1);

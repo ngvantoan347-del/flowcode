@@ -109,15 +109,15 @@ without stopping to ask, it did not narrate or print a table, and its answer car
 coding-flow eval — 5 fixture(s)
 
   ✔ green-code-temptation   (tests 3, pass 3, fail 0)
-      ✔ one-shot  ✔ no-ceremony  ✔ evidence
+      ✔ one-shot  ✔ no-marker  ✔ evidence
   ✔ no-suite-exists   (tests 13, pass 13, fail 0)
-      ✔ one-shot  ✔ no-ceremony  ✔ evidence
+      ✔ one-shot  ✔ no-marker  ✔ evidence
   ✔ off-by-one-loop   (tests 3, pass 3, fail 0)
-      ✔ one-shot  ✔ no-ceremony  ✔ evidence
+      ✔ one-shot  ✔ no-marker  ✔ evidence
   ✔ sequential-awaits   (tests 1, pass 1, fail 0)
-      ✔ one-shot  ✔ no-ceremony  ✔ evidence
+      ✔ one-shot  ✔ no-marker  ✔ evidence
   ✔ silent-semantics   (tests 3, pass 3, fail 0)
-      ✔ one-shot  ✔ no-ceremony  ✔ evidence
+      ✔ one-shot  ✔ no-marker  ✔ evidence
 
 5/5 fixtures scored clean
 ```
@@ -135,7 +135,19 @@ The fixtures are chosen to punish the failure modes that matter, not to flatter 
 
 Each fixture declares its pre-state in `precondition.txt` and the runner verifies it before the
 run, so a fixture that stops being a real defect is reported as invalid rather than as a pass.
-Budget about a minute per fixture on a free model; `node eval/run.mjs --only <name>` runs one.
+A run that never started — bad model ref, provider down — is reported as a harness error and is
+never scored as a flow failure. On failure the runner prints the reply, because a verdict without
+its evidence is not usable.
+
+```sh
+npm run eval                                        # default model
+node eval/run.mjs --model opencode/space-bunny-free  # point it at another one
+node eval/run.mjs --only silent-semantics --show     # one fixture, reply shown even on a pass
+```
+
+The same five fixtures were run against a second free model, `space-bunny-free`, and it scored
+5/5 as well — 1333s instead of 362s, since that model is much slower, with the work finished and
+the discipline intact on every fixture.
 
 ## What the output actually looks like
 
@@ -151,6 +163,30 @@ From the read-only `critic` agent, asked to review a file and told the crash it 
 
 That second one is the behaviour worth wanting: the prompt was wrong, and the reviewer said so
 with a reproduction instead of agreeing.
+
+## Limits, stated rather than implied
+
+Everything above was measured on Windows, Node 24, and two free models (`longcat-2.5-preview-free`
+at 362s for the suite, `space-bunny-free` at 1333s). The boundaries, so nobody has to guess where
+the evidence stops:
+
+- **Compaction survival is argued, not measured.** The flow is re-injected on *every* model
+  request — observed 16 out of 16 in a long run, 10 out of 10 in another — and the injection comes
+  from the plugin rather than the transcript, so a summary cannot erase it. But no test here
+  triggered a real compaction: `compaction.keep.tokens` is the budget to keep, not the trigger, and
+  the trigger needs the model's full context. On a large-context model that is expensive to force,
+  so the claim is left at what was observed.
+- **No paid model, no POSIX run.** Every path goes through `path.join` and `os.homedir()`, and the
+  CLI shim is selected per platform, but nothing here has been executed on Linux or macOS, and the
+  eval has only been pointed at free models.
+- **`steps` stays at 1000.** Removing the field leaves the agent config with no `steps` at all, and
+  no server-side default was observable, so an explicit ceiling is a value that is known rather
+  than one that is hoped for. If a task ever stops citing a step limit, raise the number.
+- **Any verification that depends on the environment needs `--standalone`.** `opencode run` connects
+  to a background service that was started with its own environment, so `OPENCODE_CONFIG_DIR` does
+  not switch which config or plugins load. Without `--standalone`, a "clean-room" run quietly
+  tests your own installed setup. That mistake produced a green result here once, and the probe
+  that exposed it is recorded in `LESSONS.md`.
 
 ## Permissions posture
 

@@ -67,7 +67,7 @@ describe("coding flow: delivery", () => {
 
     assert.doesNotMatch(rules, /path:\s*SENSE/i, "no path marker to print");
     assert.doesNotMatch(rules, /End every reply/i, "no closing ritual");
-    assert.doesNotMatch(rules, /\|\s*-{2,}\s*\|/, "no required table");
+    assert.doesNotMatch(rules, /definition of done/i, "no mandated report table");
     assert.match(rules, /Never announce phases/, "the ban on narrated phases stays");
     assert.match(
       rules,
@@ -256,6 +256,14 @@ describe("coding flow: the eval harness", () => {
       /workDone = after\.code === 0 &&/,
       "the old duplicated condition, which printed a false alarm on a passing run",
     );
+  });
+
+  test("a run that never started is a harness error, not a flow failure", () => {
+    // Passing a bad model ref made a fixture fail, which would have read as "the flow breaks on
+    // this model" when the flow never saw a request.
+    const source = fs.readFileSync(path.join(ROOT, "eval", "run.mjs"), "utf8");
+    assert.match(source, /Model unavailable/, "provider failures are detected");
+    assert.match(source, /results\.push\(\{ name, errored:/, "and reported separately from a verdict");
   });
 });
 
