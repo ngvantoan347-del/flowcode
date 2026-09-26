@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Local rollback snapshots: machine history, not part of the skill
+.rollback/
+
+# Local service credential (contains a secret) — never commit
+service.json
+
+# Runtime noise
+*.log
+*.out
+.DS_Store
+Thumbs.db
+.env
+.env.*

@@ -1,0 +1,6 @@
+# Keep the working copy byte-identical across Windows, macOS, and Linux, so a
+# config repo does not produce line-ending churn in diffs.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary

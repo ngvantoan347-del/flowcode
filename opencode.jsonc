@@ -1,0 +1,54 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // No "model" key on purpose: the owner picks the model in OpenCode and can switch
+  // it per session, so the config must not pin one.
+  "default_agent": "max",
+  "share": "manual",
+  "formatter": true,
+  "tool_output": {
+    "max_lines": 2000,
+    "max_bytes": 51200
+  },
+  "compaction": {
+    "auto": true,
+    "keep": {
+      "tokens": 14000
+    },
+    "buffer": 16000
+  },
+  "websearch": {
+    "provider": "random"
+  },
+  "watcher": {
+    "ignore": [
+      "**/node_modules/**",
+      "**/.git/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/coverage/**",
+      "**/.next/**",
+      "**/.cache/**"
+    ]
+  },
+  // Coding flow plugin: injects the flow into every model request, so it cannot be lost to a
+  // forgotten instruction. Delete this line to fall back to prose only.
+  "plugins": ["./plugins/coding-flow.js"],
+  // Full access granted by the owner: nothing is denied, nothing asks.
+  // Destructive shell commands are allowed here by explicit owner instruction.
+  // Switch to the restricted posture with: node safe-mode.mjs --on
+  "permissions": [
+    { "action": "shell", "resource": "*", "effect": "allow" },
+    { "action": "edit", "resource": "*", "effect": "allow" },
+    { "action": "read", "resource": "*", "effect": "allow" },
+    { "action": "grep", "resource": "*", "effect": "allow" },
+    { "action": "glob", "resource": "*", "effect": "allow" },
+    { "action": "webfetch", "resource": "*", "effect": "allow" },
+    { "action": "websearch", "resource": "*", "effect": "allow" },
+    { "action": "subagent", "resource": "*", "effect": "allow" },
+    { "action": "skill", "resource": "*", "effect": "allow" },
+    { "action": "question", "resource": "*", "effect": "allow" },
+    { "action": "execute", "resource": "*", "effect": "allow" }
+  ]
+}
+
+

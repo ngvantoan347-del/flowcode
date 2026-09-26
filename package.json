@@ -1,0 +1,12 @@
+{
+  "name": "flowcode",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "OpenCode agent setup: a coding flow that finishes the job — understand the real code, reuse what is proven, implement it completely, prove it, deliver it with evidence.",
+  "scripts": {
+    "posture": "node safe-mode.mjs --status"
+  },
+  "dependencies": {
+    "@opencode/plugin": "2.0.16"
+  }
+}
