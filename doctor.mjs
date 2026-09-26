@@ -37,10 +37,11 @@ const failedAssertions = (tests.stdout ?? "")
   .filter((line) => line.includes("✖"))
   .slice(0, 2)
   .join(" | ");
+const assertionCount = (tests.stdout ?? "").match(/tests\s+(\d+)/)?.[1];
 check(
   "wiring (npm test)",
   tests.status === 0,
-  tests.status === 0 ? "13 assertions pass" : `exit ${tests.status}${failedAssertions ? `: ${failedAssertions.trim()}` : ""}`,
+  tests.status === 0 ? `${assertionCount ?? "?"} assertions pass` : `exit ${tests.status}${failedAssertions ? `: ${failedAssertions.trim()}` : ""}`,
   "run `npm test` and read the failing assertion; it names the file and line",
 );
 //#endregion
