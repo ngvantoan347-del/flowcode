@@ -12,7 +12,7 @@ what a failing check points at, prove it, and answer with the evidence.
 | Mode | `agents/max.md` | The default agent. Full access, one-shot, does not hand work back. |
 | Delivery | `plugins/coding-flow.js` | Injects the non-negotiable part into every model request through the V2 `session.hook("context")` hook, so it survives compaction. |
 | Mechanism | `plugins/coding-flow.js` | Removes the `question` tool from every `max` request. A model with no way to ask cannot stop to ask. |
-| Measurement | `plugins/coding-flow.js` | Appends anomalies to a local JSONL log. Nothing is printed into the reply. |
+| Measurement | `plugins/coding-flow.js` | Appends anomalies to a local JSONL log, and samples tool calls against file changes. Nothing is printed into the reply. |
 
 Prose is followed only by habit. What prose cannot guarantee, the plugin carries: the flow is
 re-sent on every request, and the one rule that matters most is enforced by the shape of the
@@ -37,6 +37,44 @@ No model is pinned. Pick one in the TUI, or pass it to a headless run:
 opencode run --model <provider>/<model> "fix the failing test"
 ```
 
+## When to stop
+
+A page was delivered, then the run kept refining it for a long time and the page never visibly
+changed. That is the failure this section exists to prevent, and it has three parts.
+
+**A check has to be able to fail.** Prove the work with the cheapest check that can fail for the
+defect in question: a test that fails then passes, a command with an exit code, a page that must
+load clean, a number for a performance claim. Taste is not a check. A visual loop has no exit
+condition, so never let one stand in for a check.
+
+**The stop condition is named.** Work ends when that check passes. Not before, or the work is
+unfinished; not after, or it is noise. When the request states no acceptance criteria, derive the
+smallest set that satisfies it, meet it, and stop — do not invent criteria to justify another pass.
+
+**The last action has to have changed something.** If it did not, it was not work. Re-reading,
+re-running a passing check, and re-reading again are how a run turns into a loop that produces no
+pixels.
+
+The doctrine fixes the behaviour. The measurement is separate, so the failure is a number rather
+than a feeling: the plugin samples tool calls against file changes every twenty calls, and
+`npm run doctor` prints the ratio for the longest run it has seen. A long run at a low ratio is a
+run that was looking, not working.
+
+## Self-sufficiency
+
+The sandbox supplies the ground and none of the outcome. It does not hand over a prepared
+environment, a generous context, or a system that keeps saying what the next step is — the work
+stands on the agent's own judgement, and the capability gets created when the task needs one that
+does not exist yet.
+
+That is not a licence to do less or to do it badly. Each part is built properly first, then taken
+apart: keep the depth, the precision, the behaviour and the detail someone actually feels; remove
+what is redundant, inert, or held by momentum. Quality is never cut to feel lighter.
+
+Every thought has a reason to exist, every action creates value, every capability earns its place.
+Not everything needs to grow. Not every problem needs another tool. Not every process needs to be
+stretched. And when the result is good, stop — not because tokens ran out.
+
 ## Check it
 
 ```sh
@@ -48,31 +86,34 @@ npm run eval     # 5 behaviour fixtures, one real task each
 `npm run eval` is the one that measures the claim rather than the wiring. Each fixture is a small
 project with a real defect, handed to `opencode run` as a user would, then scored on: the run
 finished without stopping to ask; no marker, no closing ritual, no mandated report; the answer
-carried the evidence; and the fixture's own check passes afterwards. The last one cannot be faked.
+carried the evidence; the reply did not announce a further pass; and the fixture's own check — or,
+for work with no command to run, its deliverable — is there afterwards. The last one cannot be faked.
 
 ```
-coding-flow eval — 5 fixture(s)
+coding-flow eval — 6 fixture(s)
 
-  ✔ green-code-temptation   (tests 3, pass 3, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence
-  ✔ no-suite-exists         (tests 11, pass 11, fail 0)   ✔ one-shot  ✔ no-marker  ✔ evidence
-  ✔ off-by-one-loop         (tests 3, pass 3, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence
-  ✔ sequential-awaits       (tests 1, pass 1, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence
-  ✔ silent-semantics        (tests 3, pass 3, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence
+  ✔ green-code-temptation   (tests 3, pass 3, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
+  ✔ no-suite-exists         (tests 10, pass 10, fail 0)   ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
+  ✔ off-by-one-loop         (tests 3, pass 3, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
+  ✔ page-in-one-pass        (deliverable: index.html)     ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
+  ✔ sequential-awaits       (tests 1, pass 1, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
+  ✔ silent-semantics        (tests 4, pass 4, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
 
-5/5 fixtures scored clean
+6/6 fixtures scored clean
 ```
 
-Test counts in that block are the model's own — it decides how many cases a fix deserves, so they
-move between runs. What does not move is the verdict, and the check passing afterwards.
-
-Scored on two free models: `longcat-2.5-preview-free` in 362s, `space-bunny-free` in 1333s. Both
-5/5. The second is three times slower and no less correct.
+Test counts are the model's own — it decides how many cases a fix deserves, so they move between
+runs. The verdict does not. Scored on two free models, both clean: `longcat-2.5-preview-free` in
+362s for the first five fixtures, `space-bunny-free` at 1333s. The second is slower and no less
+correct.
 
 The fixtures are chosen to catch, not to flatter. `green-code-temptation` has one broken function
 and one green function that looks suspicious: rewriting the green one is a failure, and it happened
 here once. `silent-semantics` has a green suite and a violated spec, so only reading the contract
 gets you through. `no-suite-exists` has no tests, and `node --test` exits 0 when it finds none, so
 the runner separately requires a test file afterwards — otherwise doing nothing scores clean.
+`page-in-one-pass` has nothing to run at all: it builds a landing page from a notes file, which is
+the task class where a check degenerates into taste.
 
 ```sh
 node eval/run.mjs --only silent-semantics --show
@@ -95,6 +136,10 @@ The prompt was wrong and the reviewer said so, with a reproduction, instead of a
 
 ## Limits
 
+- **The reported loop is measured, not reproduced.** The landing-page run that triggered this
+  needed a browser tab, and a headless run never entered the loop: the same task measured 11
+  requests and 21s idle before the change, 12 and 35s after. The rules name the stop condition and
+  the ratio makes a future loop visible, but no run here has looped to prove the fix.
 - **Compaction survival is argued, not measured.** The flow is re-injected on every request,
   observed 16 of 16 in a long run, and the injection comes from the plugin rather than the
   transcript. No test here triggered a real compaction: `keep.tokens` is the budget to keep, not

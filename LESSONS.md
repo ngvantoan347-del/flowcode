@@ -174,6 +174,18 @@ The flow is delivered by a plugin, so a plugin that cannot load is a setup that 
 
 *tags: opencode, standalone, environment, verification, false-evidence, config | evidence: without --standalone the clone probe wrote 0 lines while the run succeeded; with --standalone the same run wrote 7 lines tagged from:the-clone. A second probe for the compaction hook wrote 0 lines under both modes, which is a separate fact: the hook exists but no compaction was triggered (keep.tokens is the budget to keep, not the trigger; the trigger needs the model's full context, and a large-context free model makes that expensive). | recorded 2026-09-26 | confidence high*
 
+### A plugin hook that throws takes out every tool in the session
+
+Adding a tool-call tally to the coding-flow plugin, I referenced an identifier I had not declared. The failure did not arrive where it happened: `read` and `shell` calls started returning `pulse is not defined`, one error per call, and the session lost its tools entirely while the file on disk parsed cleanly with `node --check`. `tool.execute.after` runs after *every* tool call, so an exception thrown there is raised against the agent's next action rather than against the measurement, and a bug in an observability hook becomes a total outage. Wrap measurement hooks whole in try/catch, and pin it: call the hook with a deliberately malformed event and assert it does not throw.
+
+*tags: opencode, plugin, hook, error-handling, observability, outage | evidence: two consecutive read and shell tool calls returned {"error":"unknown","message":"pulse is not defined"} while `node --check plugins/coding-flow.js` exited 0; after the declaration landed the same calls worked. Guard now: try/catch around the whole hook body plus a test asserting `doesNotThrow(() => after({ tool: "read", status: "completed" }))`. | recorded 2026-09-27 | confidence high*
+
+### "Prove it by testing it" becomes an open loop on work with no failing check
+
+The doctrine said to prove work by running, testing, and trying to break it. That is right for a bug and wrong for a page: a visual or copy change has no check that fails, so the instruction has no exit condition and the run keeps refining, spending tokens and changing nothing the user can see — the owner reported exactly this on a landing page and came back to an unchanged page. Two corrections, both mechanical rather than exhortative: the check must be one that *can fail* for the defect in question (a failing-then-passing test, an exit code, a page that loads clean, a number for a performance claim), and the stop condition is named — work ends when that check passes, and when the request states no criteria, derive the smallest set and stop rather than inventing more. Diagnosis worth keeping: a headless run never entered this loop, and the run that did had a browser tab available. Reproduce the environment before concluding a behaviour is fixed.
+
+*tags: doctrine, stopping, checks, loop, visual-work, verification | evidence: the same landing-page task headless, before and after the change: 11 requests / 55s / 21s idle after the last write, then 12 requests / 69s / 35s — unchanged within noise, because no loop was ever entered without a browser tab. The failure is therefore measured, not fixed: the plugin now samples tool calls against file changes every 20 calls and doctor prints the ratio (longest observed run: 40 calls, 21 of them changing a file, 53%), and a new eval criterion rejects a reply that announces the next pass. | recorded 2026-09-27 | confidence high*
+
 ## semantic
 
 ### Case folding must run after Unicode decomposition, never before
