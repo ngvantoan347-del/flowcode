@@ -143,6 +143,37 @@ describe("coding flow: measurement", () => {
 describe("coding flow: the config it depends on", () => {
   const configText = fs.readFileSync(path.join(ROOT, "opencode.jsonc"), "utf8");
 
+  test("a fresh clone loads the plugin with nothing installed", async () => {
+    // The community case, proved at runtime: the plugin file is imported from a directory with
+    // no node_modules anywhere above it, which is what a clone without `npm install` looks like.
+    // This failed with ERR_MODULE_NOT_FOUND while the plugin imported @opencode/plugin.
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), "coding-flow-bare-"));
+    try {
+      fs.copyFileSync(path.join(ROOT, "plugins", "coding-flow.js"), path.join(bare, "coding-flow.js"));
+      const module = await import(pathToFileURL(path.join(bare, "coding-flow.js")).href);
+      assert.equal(module.default.id, "coding-flow");
+      assert.equal(typeof module.default.setup, "function");
+    } finally {
+      fs.rmSync(bare, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  });
+
+  test("no shipped file needs an install step", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+    const runtime = Object.keys(pkg.dependencies ?? {});
+    assert.deepEqual(runtime, [], `runtime dependencies force an install: ${runtime.join(", ")}`);
+
+    for (const rel of ["plugins/coding-flow.js", "safe-mode.mjs"]) {
+      const source = fs.readFileSync(path.join(ROOT, rel), "utf8");
+      for (const [, specifier] of source.matchAll(/from\s+"([^"]+)"/g)) {
+        assert.ok(
+          specifier.startsWith("node:") || specifier.startsWith("."),
+          `${rel} imports ${specifier}, which a bare clone cannot resolve`,
+        );
+      }
+    }
+  });
+
   test("every plugin path in the config exists on disk", () => {
     // A renamed plugin file that the config still points at fails at load, not at test time.
     const referenced = [...configText.matchAll(/"\.\/(plugins\/[^"]+)"/g)].map((m) => m[1]);

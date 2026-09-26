@@ -19,7 +19,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Plugin } from "@opencode/plugin";
+
+/**
+ * @opencode/plugin's define() is `plugin => plugin` — an identity helper that exists for
+ * types. Importing it anyway made a fresh clone fail with ERR_MODULE_NOT_FOUND and cost the
+ * whole flow, so the shape is declared locally and the package stays a dev-only type source.
+ */
+const define = (plugin) => plugin;
 
 //#region state
 const STATE_DIR = path.join(os.homedir(), ".local", "share", "opencode", "coding-flow");
@@ -94,7 +100,7 @@ function stampLoad(opencodeVersion) {
 
 //#endregion
 
-export default Plugin.define({
+export default define({
   id: "coding-flow",
   setup(ctx) {
     stampLoad(ctx?.app?.version ?? "unknown");

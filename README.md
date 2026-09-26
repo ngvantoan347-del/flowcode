@@ -13,14 +13,31 @@ The repository *is* the `~/.config/opencode` layout, so it clones straight into 
 
 ```sh
 git clone https://github.com/ngvantoan347-del/flowcode.git ~/.config/opencode
-cd ~/.config/opencode
-npm install          # installs @opencode/plugin, the plugin's only dependency
 ```
+
+That is the whole install. There is no dependency to fetch and no build step: the plugin imports
+only Node builtins, so a bare clone is already a working install. `npm install` is optional and
+exists only to pull `@opencode/plugin` for editor type-checking.
 
 Restart OpenCode. No model is pinned in the config on purpose — pick the model in the TUI and
 switch per session.
 
 On Windows the config root is `%USERPROFILE%\.config\opencode`; the layout is identical.
+
+## Running on the free tier
+
+Nothing here requires a paid provider. The config pins no model, so the TUI decides; a headless
+run takes one explicitly:
+
+```sh
+opencode run --model <provider>/<model> "fix the failing test in this repo"
+```
+
+Two things keep long free-tier runs intact. The flow is re-injected on every model request, so
+it survives the context compaction a small-context model triggers. And the plugin has no runtime
+dependency, so a skipped install step cannot silently cost a user the whole flow — that failure
+mode was real: an earlier version imported `@opencode/plugin` at runtime and a fresh clone died
+with `ERR_MODULE_NOT_FOUND`, taking the flow with it. `npm test` now pins that case.
 
 ## What is enforced, and where
 
@@ -60,7 +77,7 @@ and evidence), `evolver` (read-only, proposes doctrine changes — never applies
 ## Verify the install
 
 ```sh
-npm test                                 # 11 assertions: delivery, mechanism, measurement, config
+npm test                                 # 13 assertions, no install needed
 opencode debug agents                    # "max" is registered
 opencode run --auto "fix the failing test in this repo"
 cat ~/.local/share/opencode/coding-flow/loaded    # plugin actually loaded
@@ -68,8 +85,8 @@ cat ~/.local/share/opencode/coding-flow/loaded    # plugin actually loaded
 
 `npm test` is the guard against the regressions that actually happened here: a config that points
 at a plugin file which no longer exists, a rules string that drifts back into demanding a printed
-marker, a step ceiling low enough to end a long run mid-task, and a `max` request that still
-carries the `question` tool.
+marker, a step ceiling low enough to end a long run mid-task, a `max` request that still carries
+the `question` tool, and a clone that cannot load the plugin without an install step.
 
 A healthy run fixes the work, reports the check with its output, tries a negative case, and does
 not narrate its phases or ask what to do next.

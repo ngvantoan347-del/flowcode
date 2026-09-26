@@ -7,7 +7,7 @@
     "posture": "node safe-mode.mjs --status",
     "test": "node --test plugins/coding-flow.test.mjs"
   },
-  "dependencies": {
+  "devDependencies": {
     "@opencode/plugin": "2.0.16"
   }
 }
