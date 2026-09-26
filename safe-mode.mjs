@@ -47,17 +47,19 @@ function validate(text) {
   }
 }
 
-/** Replace the permissions array line by line, keeping every other line verbatim. */
-function rebuild(lines, rules) {
-  const start = lines.findIndex((line) => /^\s*"\/permissions":\s*\[\s*$/.test(line) || line.trim() === '"permissions": [');
+/** The one definition of where the permissions array lives. Two rules for the same boundary is
+ *  how a formatting change silently turns the switch into a no-op. */
+function permissionsBounds(lines) {
+  const start = lines.findIndex((line) => /^\s*"permissions":\s*\[\s*,?\s*$/.test(line));
   if (start < 0) return null;
-  let end = -1;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (/^\s*\],?\s*$/.test(lines[index])) { end = index; break; }
-  }
-  if (end < 0) return null;
+  const end = lines.findIndex((line, index) => index > start && /^\s*\],?\s*$/.test(line));
+  return end < 0 ? null : { start, end };
+}
+
+/** Replace the permissions array in place, keeping every other line verbatim. */
+function rebuild(lines, rules, bounds) {
   // Drop the comment lines immediately above the key: they describe the old posture.
-  let first = start;
+  let first = bounds.start;
   while (first > 0 && /^\s*\/\//.test(lines[first - 1])) first -= 1;
   const header = [
     "  // Full access granted by the owner: nothing is denied, nothing asks.",
@@ -65,22 +67,18 @@ function rebuild(lines, rules) {
     "  // Switch to the restricted posture with: node safe-mode.mjs --on",
   ];
   const body = rules.map(rule).join(",\n");
-  return [...lines.slice(0, first), ...header, '  "permissions": [', body, "  ]", ...lines.slice(end + 1)];
+  return [...lines.slice(0, first), ...header, '  "permissions": [', body, "  ]", ...lines.slice(bounds.end + 1)];
 }
 
 const mode = process.argv[2] || "--status";
 const source = fs.readFileSync(CONFIG, "utf8");
 const lines = source.split(/\r?\n/);
-const startLine = lines.findIndex((line) => line.trim() === '"permissions": [');
-if (startLine < 0) {
+const bounds = permissionsBounds(lines);
+if (!bounds) {
   console.error('no "permissions" array found in opencode.jsonc - fix it by hand');
   process.exit(1);
 }
-let endLine = -1;
-for (let index = startLine + 1; index < lines.length; index += 1) {
-  if (/^\s*\],?\s*$/.test(lines[index])) { endLine = index; break; }
-}
-const currentBlock = lines.slice(startLine, endLine + 1).join("\n");
+const currentBlock = lines.slice(bounds.start, bounds.end + 1).join("\n");
 
 if (mode === "--status") {
   const denied = count(currentBlock, "deny");
@@ -98,12 +96,14 @@ if (!rules) {
   process.exit(1);
 }
 
-const candidate = rebuild(lines, rules);
+const candidate = rebuild(lines, rules, bounds);
 if (!candidate) {
-  console.error("could not locate the end of the permissions array - fix it by hand");
+  console.error("could not rebuild the permissions array - fix it by hand");
   process.exit(1);
 }
-const output = `${candidate.join("\n")}\n`;
+// Trailing blank lines are not content: without this, every round trip appends one and the file
+// grows for as long as the owner keeps switching posture.
+const output = `${candidate.join("\n").replace(/\n+$/, "")}\n`;
 if (!validate(output)) process.exit(1);
 
 fs.mkdirSync(BACKUP_DIR, { recursive: true });

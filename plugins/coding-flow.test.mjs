@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, describe, test } from "node:test";
 
@@ -264,6 +265,58 @@ describe("coding flow: the eval harness", () => {
     const source = fs.readFileSync(path.join(ROOT, "eval", "run.mjs"), "utf8");
     assert.match(source, /Model unavailable/, "provider failures are detected");
     assert.match(source, /results\.push\(\{ name, errored:/, "and reported separately from a verdict");
+  });
+});
+
+describe("coding flow: the posture switch", () => {
+  test("--status reads the config and leaves it byte-identical", () => {
+    const config = path.join(ROOT, "opencode.jsonc");
+    const before = fs.readFileSync(config, "utf8");
+    const result = spawnSync(process.execPath, [path.join(ROOT, "safe-mode.mjs"), "--status"], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /posture: (full access|restricted)/);
+    assert.equal(fs.readFileSync(config, "utf8"), before, "reporting the posture must not write");
+  });
+
+  test("one rule locates the permissions array for both the report and the rewrite", () => {
+    // They used to search with two different patterns: one required a key literally named
+    // "/permissions" and could never match, so a formatting change would have left --status
+    // working and the rewrite silently doing nothing.
+    const source = fs.readFileSync(path.join(ROOT, "safe-mode.mjs"), "utf8");
+    assert.doesNotMatch(source, /"\/permissions"/, "the dead branch is gone");
+    assert.match(source, /const bounds = permissionsBounds\(lines\);/, "one definition, shared");
+    assert.match(source, /function rebuild\(lines, rules, bounds\)/, "the rewrite takes the bounds");
+  });
+  test("a posture round trip leaves the config byte-identical", () => {
+    // safe-mode resolves its paths from its own location, so the whole switch can be exercised in
+    // a temp directory. The live config is never written by this test. Round-tripping used to
+    // append one blank line each time, which meant the file grew for as long as anyone switched.
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "flowcode-posture-"));
+    try {
+      const source = fs.readFileSync(path.join(ROOT, "opencode.jsonc"), "utf8");
+      fs.copyFileSync(path.join(ROOT, "safe-mode.mjs"), path.join(sandbox, "safe-mode.mjs"));
+      fs.writeFileSync(path.join(sandbox, "opencode.jsonc"), source, "utf8");
+
+      const switchTo = (flag) =>
+        spawnSync(process.execPath, [path.join(sandbox, "safe-mode.mjs"), flag], { encoding: "utf8", timeout: 30_000 });
+
+      assert.equal(switchTo("--on").status, 0, "restrict");
+      const restricted = fs.readFileSync(path.join(sandbox, "opencode.jsonc"), "utf8");
+      assert.match(restricted, /"effect": "deny"/, "the restricted posture denies the irreversible");
+      assert.notEqual(restricted, source, "and it really changed the file");
+
+      assert.equal(switchTo("--off").status, 0, "restore");
+      assert.equal(
+        fs.readFileSync(path.join(sandbox, "opencode.jsonc"), "utf8"),
+        source,
+        "restoring the posture restores the bytes exactly",
+      );
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
   });
 });
 

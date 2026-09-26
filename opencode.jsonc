@@ -50,5 +50,3 @@
     { "action": "execute", "resource": "*", "effect": "allow" }
   ]
 }
-
-
