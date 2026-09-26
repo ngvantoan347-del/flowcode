@@ -1,0 +1,176 @@
+/**
+ * Behaviour eval for the coding flow.
+ *
+ * `npm test` proves the flow is wired. This proves it works: each fixture is a small project
+ * with a real defect, run through `opencode run` exactly as a user would, then scored on the
+ * behaviour the flow is supposed to produce. Nothing here grades prose — it checks whether the
+ * work got done, once, without narrating, with the evidence attached.
+ *
+ * A fixture declares its own pre-state in `precondition.txt`, and the pre-state is verified
+ * before the run. A broken fixture is reported as invalid, never as a pass:
+ *
+ *   check-fails   the check must fail now            (the defect is visible to the suite)
+ *   check-passes  the check must pass now            (the suite is green, the spec is not met)
+ *   no-suite      the project must have no test file (and must have one afterwards)
+ *
+ * The `no-suite` postcondition matters more than it looks: `node --test` exits 0 when it finds
+ * no test files at all, so "the check passes" would reward a run that did nothing.
+ *
+ * Usage: node eval/run.mjs [--only <fixture>] [--keep]
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const FIXTURE_ROOT = path.join(ROOT, "eval", "fixtures");
+const RUN_TIMEOUT_MS = 300_000;
+const CHECK_TIMEOUT_MS = 60_000;
+const WINDOWS = process.platform === "win32";
+const OPENCODE = WINDOWS ? "opencode.cmd" : "opencode";
+
+const argOf = (name) => {
+  const at = process.argv.indexOf(name);
+  return at === -1 ? undefined : process.argv[at + 1];
+};
+const only = argOf("--only");
+const keep = process.argv.includes("--keep");
+
+function run(command, args, cwd, timeout) {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8", timeout, shell: WINDOWS, maxBuffer: 16 * 1024 * 1024 });
+  return {
+    code: result.status ?? (result.error ? 1 : 0),
+    out: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+    error: result.error?.message,
+  };
+}
+
+const testFiles = (dir) =>
+  fs.existsSync(dir)
+    ? fs.readdirSync(dir, { recursive: true }).filter((f) => /\.(test|spec)\.[cm]?js$/.test(f)).length
+    : 0;
+
+const readIf = (file, fallback) => (fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : fallback);
+
+/** The behaviour under test. Each returns a boolean; the criteria are deliberately blunt,
+ *  because a benchmark that measures tone is a benchmark that can be talked into. */
+const CRITERIA = [
+  {
+    name: "one-shot",
+    test: (reply) =>
+      !/(do you want me to|shall i\b|which one should i|would you like me to|before i continue|reply with\b|waiting for your)/i.test(reply) &&
+      !/\?\s*$/.test(reply.trim()),
+  },
+  {
+    name: "no-ceremony",
+    test: (reply) => !/path:\s*SENSE/i.test(reply) && !/\|\s*-{2,}\s*\|/.test(reply),
+  },
+  {
+    name: "evidence",
+    test: (reply, expect) => new RegExp(expect, "i").test(reply),
+  },
+];
+
+const names = fs
+  .readdirSync(FIXTURE_ROOT, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .filter((name) => !only || name === only);
+
+if (names.length === 0) {
+  console.error(only ? `no fixture named "${only}"` : `no fixtures in ${FIXTURE_ROOT}`);
+  process.exit(1);
+}
+
+const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "flowcode-eval-"));
+const results = [];
+
+for (const name of names) {
+  const dir = path.join(FIXTURE_ROOT, name);
+  const task = readIf(path.join(dir, "task.txt"), "");
+  const expect = readIf(path.join(dir, "expect.txt"), ".");
+  const check = readIf(path.join(dir, "check.txt"), "node --test");
+  const precondition = readIf(path.join(dir, "precondition.txt"), "check-fails");
+  const target = path.join(workdir, name);
+  fs.cpSync(path.join(dir, "project"), target, { recursive: true });
+
+  if (!task) {
+    results.push({ name, invalid: "no task.txt" });
+    continue;
+  }
+
+  const before = run(check, [], target, CHECK_TIMEOUT_MS);
+  const beforeTests = testFiles(target);
+  const preOk =
+    precondition === "check-fails"
+      ? before.code !== 0
+      : precondition === "check-passes"
+        ? before.code === 0
+        : precondition === "no-suite"
+          ? beforeTests === 0
+          : false;
+  if (!preOk) {
+    results.push({
+      name,
+      invalid: `precondition "${precondition}" not met (check exit ${before.code}, ${beforeTests} test file(s))`,
+    });
+    continue;
+  }
+
+  const agent = run(OPENCODE, ["run", "--auto", task], target);
+  const after = run(check, [], target, CHECK_TIMEOUT_MS);
+  const afterTests = testFiles(target);
+  const verdicts = CRITERIA.map((criterion) => [criterion.name, criterion.test(agent.out, expect)]);
+  // Derived from the same facts as the verdict, so the printed detail can never contradict it.
+  const nothingPinned = precondition === "no-suite" && afterTests === 0;
+  const stillFailing = after.code !== 0;
+  const workDone = !stillFailing && !nothingPinned;
+  const passed = workDone && verdicts.every(([, ok]) => ok);
+  results.push({
+    name,
+    passed,
+    verdicts,
+    tests: afterTests,
+    summary: (after.out.match(/(tests|pass|fail)\s+\d+/g) ?? []).slice(0, 3).join(", "),
+    detail: nothingPinned
+      ? "the run added no test file, so nothing was pinned"
+      : stillFailing
+        ? `the check still fails after the run:\n${after.out.trim().split("\n").slice(0, 6).join("\n")}`
+        : undefined,
+    error: agent.error,
+  });
+}
+
+const invalid = results.filter((r) => r.invalid);
+const scored = results.filter((r) => !r.invalid);
+const passed = scored.filter((r) => r.passed);
+
+console.log(`\ncoding-flow eval — ${scored.length} fixture(s)\n`);
+for (const result of results) {
+  if (result.invalid) {
+    console.log(`  ✖ ${result.name}\n      invalid fixture: ${result.invalid}`);
+    continue;
+  }
+  const marks = result.verdicts.map(([criterion, ok]) => `${ok ? "✔" : "✖"} ${criterion}`).join("  ");
+  const missed = [...result.verdicts.filter(([, ok]) => !ok).map(([c]) => c)];
+  if (result.detail) missed.unshift("work-not-done");
+  const suffix = result.passed ? `   (${result.summary || "no summary"})` : `   <- ${missed.join(", ")}`;
+  console.log(`  ${result.passed ? "✔" : "✖"} ${result.name}${suffix}`);
+  console.log(`      ${marks}`);
+  if (result.detail) console.log(`      ${result.detail.replace(/\n/g, "\n      ")}`);
+  if (result.error) console.log(`      opencode failed: ${result.error}`);
+}
+
+console.log(`\n${passed.length}/${scored.length} fixtures scored clean${invalid.length ? `, ${invalid.length} invalid` : ""}\n`);
+
+if (keep) {
+  console.log(`workdir kept: ${workdir}`);
+} else {
+  fs.rmSync(workdir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+}
+
+// An invalid fixture is a failure of the harness, not a pass. Neither is a run that never
+// produced a reply: a crash must never read as a clean score.
+process.exit(passed.length === scored.length && invalid.length === 0 ? 0 : 1);

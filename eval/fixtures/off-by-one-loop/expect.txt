@@ -1,0 +1,1 @@
+node --test|\d+ pass|pass \d

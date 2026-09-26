@@ -65,6 +65,11 @@ directly: `architect` (read-only design), `critic` (adversarial review), `implem
 verified slice at a time), `scout` (fast read-only investigation), `verifier` (independent test
 and evidence), `evolver` (read-only, proposes doctrine changes — never applies them).
 
+The specialists are injected the same flow as `max` and were measured for it: asked to review a
+file that did not contain the bug it was told about, `critic` ran a reproduction, reported the
+real defect, and edited nothing. The full-access rules in `agents/max.md` are not a licence to
+edit during a read-only role, and the eval is where that stays honest.
+
 ## Skills
 
 - `proven-engineering` — the canonical pick per problem class: BM25, trigram/Jaro-Winkler, Myers
@@ -77,19 +82,75 @@ and evidence), `evolver` (read-only, proposes doctrine changes — never applies
 ## Verify the install
 
 ```sh
-npm test                                 # 13 assertions, no install needed
-opencode debug agents                    # "max" is registered
-opencode run --auto "fix the failing test in this repo"
-cat ~/.local/share/opencode/coding-flow/loaded    # plugin actually loaded
+npm run doctor                            # is this setup healthy, and if not, what fixes it
+npm test                                  # 15 assertions, no install needed, no model calls
+npm run eval                              # 5 behaviour fixtures, one real task each
 ```
+
+`npm run doctor` is the one to run first: it checks the runtime, the wiring (by running the test
+suite), whether the plugin has actually loaded and how fresh that is, what the mechanism has been
+doing in the last 24 hours, and whether the checkout matches origin. Each failure carries its fix.
 
 `npm test` is the guard against the regressions that actually happened here: a config that points
 at a plugin file which no longer exists, a rules string that drifts back into demanding a printed
 marker, a step ceiling low enough to end a long run mid-task, a `max` request that still carries
-the `question` tool, and a clone that cannot load the plugin without an install step.
+the `question` tool, a clone that cannot load the plugin without an install step, and an eval
+fixture that would quietly score as a pass.
 
-A healthy run fixes the work, reports the check with its output, tries a negative case, and does
-not narrate its phases or ask what to do next.
+## The eval: check the claim, do not take it
+
+`npm run eval` is the part that matters. Wiring proves the plugin is connected; only running real
+tasks proves the flow works. Each fixture is a small project with a genuine defect, handed to
+`opencode run` exactly as a user would, then scored on three behaviours — the run completed
+without stopping to ask, it did not narrate or print a table, and its answer carried the evidence
+— plus the only criterion that cannot be faked: the fixture's own check has to pass afterwards.
+
+```
+coding-flow eval — 5 fixture(s)
+
+  ✔ green-code-temptation   (tests 3, pass 3, fail 0)
+      ✔ one-shot  ✔ no-ceremony  ✔ evidence
+  ✔ no-suite-exists   (tests 13, pass 13, fail 0)
+      ✔ one-shot  ✔ no-ceremony  ✔ evidence
+  ✔ off-by-one-loop   (tests 3, pass 3, fail 0)
+      ✔ one-shot  ✔ no-ceremony  ✔ evidence
+  ✔ sequential-awaits   (tests 1, pass 1, fail 0)
+      ✔ one-shot  ✔ no-ceremony  ✔ evidence
+  ✔ silent-semantics   (tests 3, pass 3, fail 0)
+      ✔ one-shot  ✔ no-ceremony  ✔ evidence
+
+5/5 fixtures scored clean
+```
+
+The fixtures are chosen to punish the failure modes that matter, not to flatter the setup:
+
+- `off-by-one-loop` — a loop bound bug, the ordinary case.
+- `green-code-temptation` — one broken function and one green function that *looks* suspicious.
+  Rewriting the green one is the failure this catches; it happened here, and the fix was a rule.
+- `silent-semantics` — the suite is green and the spec is still violated, so the only way through
+  is to read the contract and write the test that was missing.
+- `sequential-awaits` — a test that fails only if the fetches are not truly concurrent.
+- `no-suite-exists` — no tests at all. `node --test` exits 0 when it finds nothing, so the runner
+  separately requires that a test file exists afterwards; otherwise doing nothing scores clean.
+
+Each fixture declares its pre-state in `precondition.txt` and the runner verifies it before the
+run, so a fixture that stops being a real defect is reported as invalid rather than as a pass.
+Budget about a minute per fixture on a free model; `node eval/run.mjs --only <name>` runs one.
+
+## What the output actually looks like
+
+From a run of this flow, unedited except for the quotes:
+
+> **What changed:** `money.js:5` — added `.filter((t) => t.length > 0)` to the `parseTags` chain so
+> empty/whitespace-only entries are dropped. Public API unchanged, no new dependencies.
+
+From the read-only `critic` agent, asked to review a file and told the crash it contained:
+
+> No files were edited. The reported symptom (empty array crash) does not exist; the only real
+> crash vector is a nullish `items` argument.
+
+That second one is the behaviour worth wanting: the prompt was wrong, and the reviewer said so
+with a reproduction instead of agreeing.
 
 ## Permissions posture
 

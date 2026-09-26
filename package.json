@@ -5,7 +5,9 @@
   "description": "OpenCode agent setup: a coding flow that finishes the job — understand the real code, reuse what is proven, implement it completely, prove it, deliver it with evidence.",
   "scripts": {
     "posture": "node safe-mode.mjs --status",
-    "test": "node --test plugins/coding-flow.test.mjs"
+    "doctor": "node doctor.mjs",
+    "test": "node --test plugins/coding-flow.test.mjs",
+    "eval": "node eval/run.mjs"
   },
   "devDependencies": {
     "@opencode/plugin": "2.0.16"

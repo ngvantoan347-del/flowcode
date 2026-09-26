@@ -1,0 +1,1 @@
+slugify() produces broken URLs. There is no test suite in this project. Add one, find the real bug, fix it, and show the before and after output.

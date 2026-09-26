@@ -220,6 +220,45 @@ describe("coding flow: the config it depends on", () => {
 
 // Windows can hold a transient lock on a freshly written file; retry, then never fail the
 // suite on cleanup.
+describe("coding flow: the eval harness", () => {
+  const fixtures = path.join(ROOT, "eval", "fixtures");
+  const PRECONDITIONS = ["check-fails", "check-passes", "no-suite"];
+
+  test("every fixture declares a task, an expectation, a project, and a known precondition", () => {
+    const names = fs
+      .readdirSync(fixtures, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    assert.ok(names.length >= 3, "an eval with almost no fixtures proves nothing");
+
+    for (const name of names) {
+      const dir = path.join(fixtures, name);
+      assert.ok(fs.readdirSync(dir).includes("project"), `${name} has a project directory`);
+      for (const file of ["task.txt", "expect.txt", "precondition.txt"]) {
+        assert.ok(fs.existsSync(path.join(dir, file)), `${name} is missing ${file}`);
+      }
+      assert.ok(fs.readFileSync(path.join(dir, "task.txt"), "utf8").trim().length > 0, `${name} has a real task`);
+      const precondition = fs.readFileSync(path.join(dir, "precondition.txt"), "utf8").trim();
+      assert.ok(
+        PRECONDITIONS.includes(precondition),
+        `${name} declares an unknown precondition "${precondition}"; the runner would score it invalid`,
+      );
+    }
+  });
+
+  test("the runner scores from the same facts it prints", () => {
+    // A benchmark whose detail line can contradict its own verdict is worse than no benchmark,
+    // so the pass condition and the message are derived from one place in the source.
+    const source = fs.readFileSync(path.join(ROOT, "eval", "run.mjs"), "utf8");
+    assert.match(source, /const workDone = !stillFailing && !nothingPinned;/, "one definition of done");
+    assert.doesNotMatch(
+      source,
+      /workDone = after\.code === 0 &&/,
+      "the old duplicated condition, which printed a false alarm on a passing run",
+    );
+  });
+});
+
 after(() => {
   try {
     fs.rmSync(SANDBOX_HOME, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
