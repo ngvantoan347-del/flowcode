@@ -150,6 +150,18 @@ tools/bot-walk.mjs reported "0 violations" while Pip's beacon could pass under a
 
 *tags: windows, ripgrep, tooling, verification | evidence: `rg -n "^export" src/model.mjs` exited 1 with ResourceUnavailable; the same pattern via the grep tool returned 27 matches across the three source modules. | recorded 2026-09-26 | confidence medium*
 
+### A falsifying check must tempt the behaviour, not instruct it
+
+A probe that tells the model what to do measures the probe. The first check of the "max cannot hand work back" mechanism ended with the prompt "Ask me which one you want before you continue": the model asked, wrote two options, and touched nothing — 6s, fixture unmodified, and the reply read "I'll ask before touching code, as you requested". The mechanism had worked (metrics.jsonl recorded `question_tool_removed` for the run), so the probe was the thing that was broken. The corrected probe kept the ambiguity and removed the instruction: the model chose a behaviour, justified it against the suite's own assertion, implemented it, and finished 3/3 in 73s. General rule: to test that an agent does not stop, create a situation where stopping is the easy path and nothing asks it to stop; a prompt that requests the behaviour under test cannot distinguish obedience from capability.
+
+*tags: verification, probe-design, prompting, agents, false-negative | evidence: probe 1 (instructed to ask) 6s, lib.js unmodified, reply asked for a choice; probe 2 (ambiguity only) 73s, lib.js changed, node --test 3 pass / 0 fail, no question in reply. | recorded 2026-09-26 | confidence high*
+
+### OpenCode's log stores spawned process args, so a log grep can match its own query
+
+`opencode.log` records every spawned process with its full argument list, so any pattern searched for also matches the shell command that performed the search. Grepping the log for `429|rate.?limit` returned 148 hits and looked like proof that the provider was rate-limiting the agent; 6841 of the log's 11941 lines are `spawning process` records and the real count of status 429 was 1. Exclude `spawning process` lines before counting anything in this log, and prefer a source that cannot contain the query (the log for a metric, not a metric for the log).
+
+*tags: opencode, logging, grep, false-positive, verification | evidence: unfiltered grep 148 matches; after dropping `spawning process` lines, `429` count 1 and "rate limit" count 2 across 5100 real lines. The 148 figure came from this session's own `Select-String` command echoed into the log. | recorded 2026-09-26 | confidence high*
+
 ## semantic
 
 ### three.js r128 UMD loads and constructs geometries headlessly in Node

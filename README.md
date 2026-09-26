@@ -27,12 +27,19 @@ On Windows the config root is `%USERPROFILE%\.config\opencode`; the layout is id
 | Layer | File | What it does |
 | --- | --- | --- |
 | Doctrine | `AGENTS.md` | Loaded into every session by OpenCode. Contract, autonomy, proven-first engineering, evidence rules. |
-| Primary mode | `agents/max.md` | The default agent. Full access, no step ceiling in practice, never stops to ask. |
+| Primary mode | `agents/max.md` | The default agent. Full access, high step ceiling, never stops to ask. |
 | Delivery | `plugins/coding-flow.js` | Injects the non-negotiable part of the flow into **every** model request through the V2 `session.hook("context")` hook, so it survives compaction. |
+| Mechanism | `plugins/coding-flow.js` | Removes the `question` tool from the request for `max`, so "never hand work back" is a property of the request, not a sentence the model is asked to respect. |
+| Measurement | `plugins/coding-flow.js` | Appends anomalies — a removed question tool, a failed tool call — to a local JSONL log. Nothing is ever printed into the reply. |
 
 Prose alone is followed only by habit; the plugin is what makes the flow survive a weak model and
-a context compaction. It also stamps `~/.local/share/opencode/coding-flow.loaded` on setup, so
-"did the plugin actually run?" is a fact rather than a hope.
+a context compaction. What prose cannot guarantee at all, the plugin enforces structurally: a
+model with no way to ask cannot stop to ask. One limit is worth stating plainly — the V2 hook
+surface has no assistant-message hook, so a question written in prose cannot be intercepted. The
+tool is gone; the sentence is discouraged, not blocked.
+
+State lives in `~/.local/share/opencode/coding-flow/`: `loaded` is stamped on setup, so "did the
+plugin actually run?" is a fact rather than a hope, and `metrics.jsonl` is capped at 512 KB.
 
 ## Modes
 
@@ -53,11 +60,16 @@ and evidence), `evolver` (read-only, proposes doctrine changes — never applies
 ## Verify the install
 
 ```sh
-node --check plugins/coding-flow.js      # plugin parses
+npm test                                 # 11 assertions: delivery, mechanism, measurement, config
 opencode debug agents                    # "max" is registered
 opencode run --auto "fix the failing test in this repo"
-cat ~/.local/share/opencode/coding-flow.loaded   # plugin actually loaded
+cat ~/.local/share/opencode/coding-flow/loaded    # plugin actually loaded
 ```
+
+`npm test` is the guard against the regressions that actually happened here: a config that points
+at a plugin file which no longer exists, a rules string that drifts back into demanding a printed
+marker, a step ceiling low enough to end a long run mid-task, and a `max` request that still
+carries the `question` tool.
 
 A healthy run fixes the work, reports the check with its output, tries a negative case, and does
 not narrate its phases or ask what to do next.
