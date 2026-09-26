@@ -46,18 +46,34 @@ const RULES = [
   "before touching anything; pick the approach that is already proven (standard library, a",
   "battle-tested library, the canonical algorithm) and name what you reused; implement it",
   "completely; change only what a failing check points at, because code whose test already passed",
-  "is not broken; prove it by running it, testing it, and trying to break it; deliver the finished",
-  "result with the evidence.",
+  "is not broken; prove it with the cheapest check that can fail for the defect in question - a",
+  "test that fails then passes, a command with an exit code, a page that must load clean - and",
+  "deliver the finished result with the evidence.",
+  "",
+  "Work ends when that check passes: not before, or the work is unfinished; not after, or it is",
+  "noise. A check that cannot fail for this defect is not a check. If the request states no",
+  "acceptance criteria, derive the smallest set that satisfies it, meet it, and stop instead of",
+  "inventing more. If the last action changed nothing the user will see, it was not work.",
   "",
   "Never announce phases, print a status line, fill a progress checklist, or narrate your",
-  "itinerary. Never stop early, for a step or budget limit or for uncertainty. Never end a turn",
-  "with a question, a proposal, or a next-step list: finish the job, or name the single blocker -",
-  "the question tool is not in your request, so finish everything that is not blocked and state",
-  "what stopped you. A trivial question needing no tool call gets a direct answer.",
+  "itinerary. Never end a turn with a question, a proposal, or a next-step list: finish the job, or",
+  "name the single blocker - the question tool is not in your request, so finish everything that is",
+  "not blocked and state what stopped you. A trivial question needing no tool call gets a direct",
+  "answer.",
   "",
   "Never claim a pass you did not run, and never present an inference as an observation. Spend",
-  "tokens on evidence - real code, tests, negative cases, a broader check - never on repetition.",
+  "tokens on the one check that can fail, never on repetition or on work already done.",
 ].join("\n");
+
+/** The tools that change a file. Used only to measure the ratio of work to change, so a near-zero
+ *  ratio across a long run is the signature of a loop that reads, checks and re-reads. */
+const MUTATING_TOOLS = /^(write|edit|patch|multiedit|apply_patch|str_replace)/i;
+/** How often a session's tally is written down. Every call would be noise; never sampling would
+ *  hide the very run this exists to catch. */
+const PULSE_EVERY = 20;
+
+/** Per-session tally of tool calls against file changes. */
+const pulse = new Map();
 
 //#endregion
 
@@ -68,8 +84,7 @@ function rotateIfOversized() {
 }
 
 /** Anomalies only, so the log stays small enough to read and never becomes noise itself. */
-function record(entry) {
-  try {
+function record(entry) {  try {
     fs.mkdirSync(STATE_DIR, { recursive: true });
     rotateIfOversized();
     fs.appendFileSync(METRICS, `${JSON.stringify({ t: new Date().toISOString(), ...entry })}\n`, "utf8");
@@ -114,16 +129,30 @@ export default define({
     });
 
     // Measurement without ceremony: a tool that failed is a fact worth keeping, a tool that
-    // succeeded is not worth a line.
+    // succeeded is not worth a line. The tally is the one that matters for drift, because it
+    // separates work that changed something from work that only looked at something.
+    // Wrapped whole, on purpose: this hook runs after every tool call in the session, so a throw
+    // here takes out every tool the agent has, not just this measurement.
     ctx.tool.hook("execute.after", (event) => {
-      if (event.status !== "error") return;
-      record({
-        kind: "tool_error",
-        tool: event.tool,
-        agent: event.agent,
-        sessionID: event.sessionID,
-        detail: String(event.error?.message ?? event.error ?? "unknown").slice(0, 160),
-      });
+      try {
+        const tally = pulse.get(event.sessionID) ?? { calls: 0, writes: 0 };
+        tally.calls += 1;
+        if (MUTATING_TOOLS.test(event.tool)) tally.writes += 1;
+        pulse.set(event.sessionID, tally);
+        if (tally.calls % PULSE_EVERY === 0) {
+          record({ kind: "pulse", agent: event.agent, sessionID: event.sessionID, calls: tally.calls, writes: tally.writes });
+        }
+        if (event.status !== "error") return;
+        record({
+          kind: "tool_error",
+          tool: event.tool,
+          agent: event.agent,
+          sessionID: event.sessionID,
+          detail: String(event.error?.message ?? event.error ?? "unknown").slice(0, 160),
+        });
+      } catch {
+        // Never propagate: an exception out of a tool hook breaks every tool in the session.
+      }
     });
 
     return () => {

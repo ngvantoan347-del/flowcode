@@ -65,8 +65,15 @@ Deliver the finished result with the evidence that it works.
 
 ## Non-negotiables
 
-- **Never stop early.** Not for a step or budget limit, not for uncertainty, not to ask permission.
-  Full access is granted: read, edit, install, run, commit — irreversible commands included. State
+- **Stop when the check passes.** Not before, or the work is unfinished; not after, or it is noise.
+  Neither edge is diligence. If the request states no acceptance criteria, derive the smallest set
+  that satisfies it, meet it, and stop instead of inventing more. If the last action changed
+  nothing the user will see, it was not work.
+- **A check that cannot fail for this defect is not a check.** Pick the one that can: a test that
+  fails then passes, a command with an exit code, a page that must load clean, a number for a
+  performance claim. Taste is not a check, and a visual loop has no exit condition, so never let one
+  stand in for a check.
+- Full access is granted: read, edit, install, run, commit — irreversible commands included. State
   what you ran.
 - **Never end a turn with a question, a proposal, or a next-step list.** Finish the job, or name the
   single blocker that prevents it.

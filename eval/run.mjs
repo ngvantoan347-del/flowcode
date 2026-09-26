@@ -12,17 +12,20 @@
  *   check-fails   the check must fail now            (the defect is visible to the suite)
  *   check-passes  the check must pass now            (the suite is green, the spec is not met)
  *   no-suite      the project must have no test file (and must have one afterwards)
+ *   no-check      there is nothing to run; the deliverable named in `deliverable.txt` must appear
  *
- * The `no-suite` postcondition matters more than it looks: `node --test` exits 0 when it finds
- * no test files at all, so "the check passes" would reward a run that did nothing.
+ * The `no-check` postcondition is what keeps a fixture honest for work that is not testable — a
+ * page, a document, a config. "It exists and is real" is weak, and it is the only thing a
+ * mechanical check can honestly ask.
  *
- * Usage: node eval/run.mjs [--only <fixture>] [--keep]
+ * Usage: node eval/run.mjs [--only <fixture>] [--model <provider/model>] [--show] [--keep]
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { CRITERIA } from "./criteria.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FIXTURE_ROOT = path.join(ROOT, "eval", "fixtures");
@@ -56,29 +59,6 @@ const testFiles = (dir) =>
 
 const readIf = (file, fallback) => (fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : fallback);
 
-/** The behaviour under test. Each returns a boolean; the criteria are deliberately blunt,
- *  because a benchmark that measures tone is a benchmark that can be talked into. */
-const CRITERIA = [
-  {
-    name: "one-shot",
-    test: (reply) =>
-      !/(do you want me to|shall i\b|which one should i|would you like me to|before i continue|reply with\b|waiting for your)/i.test(reply) &&
-      !/\?\s*$/.test(reply.trim()),
-  },
-  {
-    // Only the ceremony the doctrine used to mandate. A table enumerating twelve concrete
-    // file:line fixes is content, not ritual, and banning it would punish the useful case: a
-    // first version of this criterion failed a run that did nothing wrong.
-    name: "no-marker",
-    test: (reply) =>
-      !/path:\s*SENSE/i.test(reply) && !/end every reply/i.test(reply) && !/definition of done/i.test(reply),
-  },
-  {
-    name: "evidence",
-    test: (reply, expect) => new RegExp(expect, "i").test(reply),
-  },
-];
-
 const names = fs
   .readdirSync(FIXTURE_ROOT, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
@@ -99,6 +79,7 @@ for (const name of names) {
   const expect = readIf(path.join(dir, "expect.txt"), ".");
   const check = readIf(path.join(dir, "check.txt"), "node --test");
   const precondition = readIf(path.join(dir, "precondition.txt"), "check-fails");
+  const deliverable = readIf(path.join(dir, "deliverable.txt"), "");
   const target = path.join(workdir, name);
   fs.cpSync(path.join(dir, "project"), target, { recursive: true });
 
@@ -107,7 +88,8 @@ for (const name of names) {
     continue;
   }
 
-  const before = run(check, [], target, CHECK_TIMEOUT_MS);
+  const usesCheck = precondition !== "no-check";
+  const before = usesCheck ? run(check, [], target, CHECK_TIMEOUT_MS) : { code: 0, out: "" };
   const beforeTests = testFiles(target);
   const preOk =
     precondition === "check-fails"
@@ -116,7 +98,9 @@ for (const name of names) {
         ? before.code === 0
         : precondition === "no-suite"
           ? beforeTests === 0
-          : false;
+          : precondition === "no-check"
+            ? Boolean(deliverable)
+            : false;
   if (!preOk) {
     results.push({
       name,
@@ -134,13 +118,17 @@ for (const name of names) {
     results.push({ name, errored: `the run never started: ${notRun[0]} (is the model ref valid?)` });
     continue;
   }
-  const after = run(check, [], target, CHECK_TIMEOUT_MS);
+  const after = usesCheck ? run(check, [], target, CHECK_TIMEOUT_MS) : { code: 0, out: "" };
   const afterTests = testFiles(target);
   const verdicts = CRITERIA.map((criterion) => [criterion.name, criterion.test(agent.out, expect)]);
   // Derived from the same facts as the verdict, so the printed detail can never contradict it.
+  const delivered = precondition !== "no-check" || (() => {
+    const file = path.join(target, deliverable);
+    return fs.existsSync(file) && fs.statSync(file).size >= 200;
+  })();
   const nothingPinned = precondition === "no-suite" && afterTests === 0;
-  const stillFailing = after.code !== 0;
-  const workDone = !stillFailing && !nothingPinned;
+  const stillFailing = usesCheck && after.code !== 0;
+  const workDone = !stillFailing && !nothingPinned && delivered;
   const passed = workDone && verdicts.every(([, ok]) => ok);
   results.push({
     name,
@@ -149,11 +137,13 @@ for (const name of names) {
     tests: afterTests,
     summary: (after.out.match(/(tests|pass|fail)\s+\d+/g) ?? []).slice(0, 3).join(", "),
     tail: agent.out.trim().split("\n").slice(-16).join("\n"),
-    detail: nothingPinned
-      ? "the run added no test file, so nothing was pinned"
-      : stillFailing
-        ? `the check still fails after the run:\n${after.out.trim().split("\n").slice(0, 6).join("\n")}`
-        : undefined,
+    detail: !delivered
+      ? `the deliverable ${deliverable || "(unnamed)"} was never created, or is too small to be the thing asked for`
+      : nothingPinned
+        ? "the run added no test file, so nothing was pinned"
+        : stillFailing
+          ? `the check still fails after the run:\n${after.out.trim().split("\n").slice(0, 6).join("\n")}`
+          : undefined,
     error: agent.error,
   });
 }

@@ -144,6 +144,29 @@ describe("coding flow: measurement", () => {
     assert.equal(entries.at(-1).kind, "tool_error");
     assert.equal(entries.at(-1).tool, "shell");
   });
+
+  test("work is measured against change, and the hook can never throw", async () => {
+    // A loop that only reads and checks shows up as a long run with almost no writes, so the tally
+    // is what makes that visible. The second half is not hypothetical: an undeclared identifier in
+    // this hook took out every tool in the session, because the hook runs after all of them.
+    const plugin = (await import("./coding-flow.js")).default;
+    const ctx = fakeCtx();
+    await plugin.setup(ctx);
+    const after = ctx.registered.tool["execute.after"];
+
+    for (let call = 0; call < 25; call += 1) {
+      after({ tool: call % 5 === 0 ? "write" : "read", agent: "max", sessionID: "tally", status: "completed", result: {} });
+    }
+    const pulses = readMetrics().filter((entry) => entry.kind === "pulse" && entry.sessionID === "tally");
+    assert.equal(pulses.length, 1, "one pulse per twenty calls, not one per call");
+    assert.equal(pulses[0].calls, 20);
+    assert.equal(pulses[0].writes, 4, "only the calls that change a file count as change");
+
+    assert.doesNotThrow(
+      () => after({ tool: "read", status: "completed" }),
+      "a malformed event must not escape the hook",
+    );
+  });
 });
 
 describe("coding flow: the config it depends on", () => {
@@ -223,7 +246,31 @@ describe("coding flow: the config it depends on", () => {
 // suite on cleanup.
 describe("coding flow: the eval harness", () => {
   const fixtures = path.join(ROOT, "eval", "fixtures");
-  const PRECONDITIONS = ["check-fails", "check-passes", "no-suite"];
+  const PRECONDITIONS = ["check-fails", "check-passes", "no-suite", "no-check"];
+
+  test("every criterion rejects a reply it was written to catch", async () => {
+    // A criterion with no counter-example is decoration. Each pair below is the failure the owner
+    // actually reported, or the one this setup has already produced by accident.
+    const { CRITERIA } = await import(pathToFileURL(path.join(ROOT, "eval", "criteria.mjs")).href);
+    const byName = Object.fromEntries(CRITERIA.map((c) => [c.name, c]));
+    // One realistic expectation for every criterion, so "evidence" is never handed a pattern that
+    // matches anything: that mistake made the criterion vacuous in the first version of this test.
+    const expect = "node --test|\\d+ pass";
+    const counterExamples = {
+      "one-shot": "Fixed the bug. node --test passes 3/3.\n\nWould you like me to add a type definition too?",
+      "no-marker": "Fixed the bug. node --test passes 3/3.\n\npath: SENSE > ACT > VERIFY  [ok]",
+      evidence: "All done, the tests are green.",
+      "no-further-work":
+        "Created index.html with a warm palette and responsive type. node --test passes 2/2.\n\nLet me also add a dark mode and a favicon next.",
+    };
+    const clean =
+      'Created `index.html`: hero, details, and an owner line, all inline, no dependencies. The grep confirms every required string is present and the file opens directly. 3/3 pass.';
+
+    for (const [name, test] of Object.entries(byName)) {
+      assert.equal(test.test(counterExamples[name], expect), false, `${name} accepted the reply it must reject`);
+      assert.equal(test.test(clean, expect), true, `${name} rejected a finished, evidenced reply`);
+    }
+  });
 
   test("every fixture declares a task, an expectation, a project, and a known precondition", () => {
     const names = fs
@@ -244,18 +291,31 @@ describe("coding flow: the eval harness", () => {
         PRECONDITIONS.includes(precondition),
         `${name} declares an unknown precondition "${precondition}"; the runner would score it invalid`,
       );
+      if (precondition === "no-check") {
+        // Nothing to run means something has to be judged instead, or the fixture scores anything.
+        assert.ok(
+          fs.existsSync(path.join(dir, "deliverable.txt")),
+          `${name} has nothing to check and names no deliverable, so any run would score clean`,
+        );
+      }
     }
   });
 
   test("the runner scores from the same facts it prints", () => {
     // A benchmark whose detail line can contradict its own verdict is worse than no benchmark,
-    // so the pass condition and the message are derived from one place in the source.
+    // so the verdict is computed once, from named facts, and the message reads those names.
     const source = fs.readFileSync(path.join(ROOT, "eval", "run.mjs"), "utf8");
-    assert.match(source, /const workDone = !stillFailing && !nothingPinned;/, "one definition of done");
+    assert.equal((source.match(/const workDone =/g) ?? []).length, 1, "exactly one definition of done");
+    assert.match(source, /const workDone = !stillFailing && !nothingPinned && delivered;/, "from the named facts");
     assert.doesNotMatch(
       source,
       /workDone = after\.code === 0 &&/,
       "the old duplicated condition, which printed a false alarm on a passing run",
+    );
+    assert.doesNotMatch(
+      source,
+      /detail:[\s\S]{0,80}?after\.code === 0\s*\n/,
+      "the printed detail must read the same booleans, not recompute the check",
     );
   });
 
