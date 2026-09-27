@@ -28,9 +28,12 @@ git clone https://github.com/ngvantoan347-del/flowcode.git ~/.config/opencode
 ```
 
 That is the whole install. The plugin imports Node builtins only, so a bare clone already works and
-`npm install` is optional, existing only to pull `@opencode/plugin` for editor type-checking. An
-earlier version imported that package at runtime, and a clone without an install step failed with
-`ERR_MODULE_NOT_FOUND` and lost the flow silently. `npm test` now pins that case.
+`npm install` is optional, existing only to pull `@opencode/plugin` for editor type-checking and
+`puppeteer-core` for the browser check below. Without the latter, a fresh clone passes 24 of its 26
+assertions, skips the two that need a browser, and `eval/page-check.mjs` exits 77 saying which
+package is missing. An earlier version imported that package at runtime, and a clone without an
+install step failed with `ERR_MODULE_NOT_FOUND` and lost the flow silently. `npm test` now pins that
+case.
 
 No model is pinned. Pick one in the TUI, or pass it to a headless run:
 
