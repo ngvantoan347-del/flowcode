@@ -187,6 +187,29 @@ describe("coding flow: the config it depends on", () => {
     }
   });
 
+  test("no shipped file carries a byte-order mark", () => {
+    // Not hypothetical: `Set-Content -Encoding UTF8` in Windows PowerShell 5.1 writes a BOM, and a
+    // BOM in package.json makes JSON.parse throw on the very first character.
+    const shipped = [];
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".rollback") continue;
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.(md|json|jsonc|mjs|js|txt)$/.test(entry.name)) shipped.push(full);
+      }
+    };
+    walk(ROOT);
+    for (const file of shipped) {
+      const head = fs.readFileSync(file).subarray(0, 3);
+      assert.notDeepEqual(
+        [...head],
+        [0xef, 0xbb, 0xbf],
+        `${path.relative(ROOT, file)} starts with a BOM`,
+      );
+    }
+  });
+
   test("no shipped file needs an install step", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
     const runtime = Object.keys(pkg.dependencies ?? {});

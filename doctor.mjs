@@ -74,22 +74,32 @@ if (!fs.existsSync(marker)) {
 }
 //#endregion
 
-// #region work against change
+// #region what the mechanism has actually been doing
+const metrics = path.join(STATE, "metrics.jsonl");
+const entries = fs.existsSync(metrics)
+  ? fs.readFileSync(metrics, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line)];
+        } catch {
+          return []; // a truncated last line is not worth failing over
+        }
+      })
+  : [];
+
 // The failure that is felt but never measured: a run that gets very long and changes nothing the
 // user will see. The plugin samples tool calls against file changes, so the ratio is a number.
-const metrics = path.join(STATE, "metrics.jsonl");
-const pulses = new Map();
-if (fs.existsSync(metrics)) {
-  for (const line of fs.readFileSync(metrics, "utf8").split("\n").filter(Boolean)) {
-    try {
-      const entry = JSON.parse(line);
-      if (entry.kind === "pulse") pulses.set(entry.sessionID, entry);
-    } catch {
-      // a truncated last line is not worth failing over
-    }
-  }
+const latestPulse = new Map();
+const day = Date.now() - 86_400_000;
+const recent = [];
+for (const entry of entries) {
+  if (entry.kind === "pulse") latestPulse.set(entry.sessionID, entry);
+  if (Date.parse(entry.t) > day) recent.push(entry.kind);
 }
-const heaviest = [...pulses.values()].sort((a, b) => b.calls - a.calls)[0];
+
+const heaviest = [...latestPulse.values()].sort((a, b) => b.calls - a.calls)[0];
 if (!heaviest) {
   check("work against change", true, "no long run sampled yet, which is the healthy state");
 } else {
@@ -98,36 +108,20 @@ if (!heaviest) {
     "work against change",
     heaviest.calls < 60 || ratio >= 20,
     `longest run: ${heaviest.calls} tool calls, ${heaviest.writes} of them changed a file (${ratio}%)`,
-    ratio < 20 && heaviest.calls >= 60
+    heaviest.calls >= 60 && ratio < 20
       ? "most of that run only looked at things; if the work was finished earlier, the rules in plugins/coding-flow.js say to stop"
       : undefined,
   );
 }
-//#endregion
 
-// #region anomalies
-const anomalies = path.join(STATE, "metrics.jsonl");
-if (fs.existsSync(anomalies)) {
-  const lines = fs.readFileSync(anomalies, "utf8").trim().split("\n").filter(Boolean);
-  const day = Date.now() - 86_400_000;
-  const recent = [];
-  for (const line of lines) {
-    try {
-      const entry = JSON.parse(line);
-      if (Date.parse(entry.t) > day) recent.push(entry.kind);
-    } catch {
-      // a truncated last line is not worth failing over
-    }
-  }
-  const tally = (kind) => recent.filter((k) => k === kind).length;
-  check(
-    "anomalies (24h)",
-    true,
-    `${recent.length} events: question-tool removed ${tally("question_tool_removed")}, tool errors ${tally("tool_error")}`,
-  );
-} else {
-  check("anomalies (24h)", true, "none recorded yet, which is the healthy state");
-}
+const tally = (kind) => recent.filter((k) => k === kind).length;
+check(
+  "anomalies (24h)",
+  true,
+  entries.length === 0
+    ? "none recorded yet, which is the healthy state"
+    : `${recent.length} events: question-tool removed ${tally("question_tool_removed")}, tool errors ${tally("tool_error")}`,
+);
 //#endregion
 
 // #region version control

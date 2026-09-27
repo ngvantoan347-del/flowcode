@@ -186,6 +186,12 @@ The doctrine said to prove work by running, testing, and trying to break it. Tha
 
 *tags: doctrine, stopping, checks, loop, visual-work, verification | evidence: the same landing-page task headless, before and after the change: 11 requests / 55s / 21s idle after the last write, then 12 requests / 69s / 35s — unchanged within noise, because no loop was ever entered without a browser tab. The failure is therefore measured, not fixed: the plugin now samples tool calls against file changes every 20 calls and doctor prints the ratio (longest observed run: 40 calls, 21 of them changing a file, 53%), and a new eval criterion rejects a reply that announces the next pass. | recorded 2026-09-27 | confidence high*
 
+### Windows PowerShell 5.1 writes a BOM with Set-Content -Encoding UTF8
+
+Editing package.json in place with `(Get-Content -Raw) -replace ... | Set-Content -Encoding UTF8` produced a file starting with U+FEFF, and `JSON.parse` then threw on the first character. The whole repository was scanned: it was the only affected file, and it had been committed to a public remote. On Windows PowerShell 5.1, use `[System.IO.File]::WriteAllText(path, text, (New-Object System.Text.UTF8Encoding($false)))` for anything that will be parsed, committed, or shipped; reserve `Set-Content -Encoding UTF8` for throwaway files. A test now walks the shipped tree and fails on a BOM. Related trap in the same session, worth separating: the console *rendered* a valid em dash as `?`, which looked exactly like corruption. Both directions matter — verify the bytes before "fixing" an encoding, and verify the bytes after writing one.
+
+*tags: powershell, windows, encoding, bom, json, packaging | evidence: after the edit, `node -e "require('./package.json')"` failed with `SyntaxError: Unexpected token '', "{ "name"... is not valid JSON`; the file's first three bytes were EF BB BF. A repo-wide scan found one BOM'd file, removed with WriteAllText(UTF8Encoding(false)), and the assertion now walks every .md/.json/.jsonc/.mjs/.js/.txt file. | recorded 2026-09-27 | confidence high*
+
 ## semantic
 
 ### Case folding must run after Unicode decomposition, never before
@@ -369,10 +375,68 @@ unabsorbed space. Nothing looked broken; the layout just had unexplained 24-48px
 band that happened to fall between the viewport widths a hand-picked breakpoint sweep had sampled.
 
 Class selectors are not equal: an element+class always beats a bare class, whatever the file order.
-The audit that finds this is cheap and general: extract every single-class selector that declares a
-property, ask `getComputedStyle` what that property actually resolves to, report the mismatches. Two
-things make the check trustworthy: derive expectations from the stylesheet rather than from memory, and
-skip classes that have a same-specificity modifier (`.btn--sm` legitimately narrows `.btn`) - a check
-that reports false failures is a check people learn to ignore. Fix by excluding the component from the
-generic rule (`:not(.bento__foot)`), not by inflating the component's specificity, which stops the
-generic rule from overreaching again the next time someone adds a property to it.
+Fix by excluding the component from the generic rule (`:not(.bento__foot)`), not by inflating the
+component's specificity, which stops the generic rule from overreaching again the next time someone
+adds a property to it.
+
+The audit that finds this must not compare a declared value to a computed value in JavaScript. Every
+attempt at that re-implements CSS value resolution, and every gap in it becomes a false positive. An
+early version handled px/rem/em/vw/vh and hex but not `vmax`; resolved `em` against the parent for
+every property, when only `font-size` does; ignored blockification (`display: inline-flex` on a flex
+item computes to `flex` by spec, so `.brand`'s declaration was never dead); and read `@media`
+attribution with a regex, which matches the innermost `{ }` first and so made every rule inside a
+query look top-level - four of its five findings were the checker, not the page, and it reported the
+damaged page as clean.
+
+Ask the browser instead: set the property on the real element, read it back, remove it. Same element,
+same children, same inherited font size and custom properties, no structural side effect, so one
+string comparison answers "is this the declaration in force" with `var()`, `clamp()`, `calc()`, `em`
+and blockification all resolved natively. 4752 comparisons over 7 widths: 0 false positives. A
+*sibling probe* is the tempting version and is wrong - an extra child re-resolves the container's own
+grid, so `grid-template-columns: minmax(0, 1fr)` reads back as a pixel value and every container in
+the file looks dead. Set the shorthand and read the longhand, or the read is simply invalid.
+
+Three verdicts, and collapsing them is what made it lie again: **dead** (never in force at any
+audited width), **outranked** (loses to a declaration inside a media query - a responsive stylesheet
+working), **specificity fault** (loses to some other selector with no media query to explain it). A
+rival in the *same* context is a fourth case and not a fault: a later peer declaration wins by order,
+which is how `.container` puts its rail gutter after `padding-inline`. Exempting any loser that merely
+had a rival - the obvious shortcut, and the one I wrote - reports the damaged page as clean, so the
+classification must be derived from the stylesheet rather than from a count.
+
+A check that has only ever returned zero has not been shown to be capable of returning anything, so
+give it a negative control: revert the fix in a patched copy, serve that, and require the same audit to
+exit non-zero. It caught all three declarations by value - font-size 15.04 vs 12.48px, color
+rgb(167,177,196) vs rgb(123,134,153), margin-top 8px vs `auto`. Build the control's server in the
+parent process but spawn the checker with `spawn`, not `execFileSync`: the synchronous child blocks the
+event loop, the in-process server never accepts a connection, and the control fails on a navigation
+timeout that looks like a checker failure. | recorded 2026-09-27 | confidence high*
+
+### Read paint timing through a buffered observer, not `getEntriesByType("paint")`
+
+Called after `load`, `performance.getEntriesByType("paint")` returns an empty object in this Edge
+build, so a probe prints `paint={}` and reads as "no paint data". The entries exist; the synchronous
+query is not the way to get them. Register `new PerformanceObserver(...).observe({type: "paint",
+buffered: true})` from `page.evaluateOnNewDocument`, before navigation, and collect into a global.
+
+This mattered because it left a 1.2s gap unattributed: Lighthouse reported FCP 1.7-1.9s for a 96 KB
+static page, which payload cannot explain. With the observer, FCP was 664-700ms and LCP 1456-1524ms on
+runs where the test server returned its first byte in 9-10ms - and on the run where the server's first
+byte took **1697ms**, FCP rose to 2288ms and LCP to 3112ms. Same delta. The gap was
+`python -m http.server` on a shared VM, not the page. A metric that disagrees with an obviously simpler
+measurement is usually the harness, so time the two timelines before believing either, and never mix
+their numbers in one figure. | recorded 2026-09-27 | confidence high*
+
+### "Original design" is a brief, not a licence to stack effects
+
+Asked for an original, self-chosen visual style, I shipped six effects at once - canvas particle field,
+grain, cursor glow, scrolling marquee, self-typing terminal, 3D tilt cards with a spotlight, animated
+counters - on near-black. Automated checks were all green: 73 assertions on geometry, contrast, no-JS
+and behaviour. The user's reply was "Web cug xau qua. Lam dung chuan professional di" - too ugly, make it
+actually professional. Every assertion passed and the page failed the only criterion that mattered.
+
+Restraint is the deliverable, and it is checkable: one background colour, one text colour, one accent
+used only for indexes and state, at most two dark surfaces, no element on an infinite animation loop, one
+type scale that is strictly decreasing, one hairline, one corner radius, one column edge for the whole
+page. Those are assertions, not taste - encode them, and the design cannot silently drift back into a
+gimmick pile. A green suite proves the page is correct; only the reader proves it is good. | recorded 2026-09-27 | confidence high*

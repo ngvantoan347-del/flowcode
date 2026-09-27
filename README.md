@@ -1,8 +1,9 @@
 # flowcode
 
-An OpenCode setup where the model does the work and stops when it is finished. Not a script of
-phases, not a report format. Understand the real code, reuse what is already proven, change only
-what a failing check points at, prove it, and answer with the evidence.
+An OpenCode setup for an agent that works like an engineer: it produces code that runs, proves it
+with a check that can fail, and stops when the check passes. Not a script of phases, not a report
+format, not a demo. Understand the real code, reuse what is already proven, change only what a
+failing check points at, and answer with the evidence.
 
 ## How it is delivered
 
