@@ -113,6 +113,7 @@ server.listen(port, "127.0.0.1", () => {
   console.log(`serving ${ROOT}`);
   console.log(`  http://127.0.0.1:${chosen}/`);
   console.log("  a local file cannot be opened in a tab with a file:// URL; use this one");
+  console.log("  it runs until interrupted: start it in the background, or the tab outlives nothing");
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

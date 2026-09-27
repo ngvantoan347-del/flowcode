@@ -146,6 +146,9 @@ the same walk all return 404. A directory with no `index.html` serves its one pa
 there, because a 404 at the root reads as a broken server. Three assertions cover it, and they need
 no browser.
 
+It runs until interrupted, so start it in the background. A server started as an ordinary
+foreground call dies with that call's timeout, and the tab outlives nothing.
+
 The last hop is the honest gap: whether a tab actually renders the served page was not verified
 here, because no desktop browser is connected to the session that wrote this. That is the same
 condition that produced the original error, and it is the part `page-check.mjs` exists to cover
