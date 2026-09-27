@@ -516,3 +516,102 @@ window, and keep the selector form only where a node really is meant, pushing ev
 nothing; after the split the same check reports `scaleX=1 at scrollY 14719/14719`, and the new
 `no script listener bound to a selector that matches nothing` check holds at 28/28. | recorded
 2026-09-27 | confidence high*
+
+### On this Windows shell, inline JSON arguments arrive with their quotes stripped
+
+`node cli.mjs --stats '{"views":184200}'` reached Node as `{views:184200}` and failed to parse,
+even when the PowerShell string was single-quoted - the wrapper re-parses the command line before
+the native call, so the double quotes never survive. Two runs were lost to it. A CLI that takes
+structured arguments must offer a shape the shell cannot mangle: accept `key=value,key=value` and
+`@file.json` alongside inline JSON, and prefer them in docs and tests. Here that meant
+`--stats views=184200,likes=21400` parsing to the same object as the file form, covered by a test
+that asserts both produce identical output.
+
+*tags: windows, powershell, cli, argument-parsing, json | evidence: two `error: --stats is not valid
+JSON: Expected property name or '}' ... at position 1` failures from the identical single-quoted
+invocation; after adding the kv and @file forms, `node src/cli.mjs <url> --stats
+views=184200,likes=21400,...` exits 0 and the CLI test comparing both forms passes. | recorded
+2026-09-27 | confidence high*
+
+### An ESM entry point compared `import.meta.url` to a hand-built `file://` string and never ran
+
+`import.meta.url === `file://${resolve(process.argv[1]).replace(/\\/g,"/")}`` yields
+`file://C:/...` while the loader reports `file:///C:/...`, so the `isMain` guard was false on
+Windows, `run()` was never invoked, and the CLI exited 0 having printed nothing. A green process
+exit is not a green CLI. Use `pathToFileURL(resolve(argv[1])).href` from `node:url`, and always
+assert on the command's stdout in a test, never on its exit code alone.
+
+*tags: node, esm, windows, entry-point, silent-failure | evidence: `node src/cli.mjs <valid url>
+--stats ...` printed nothing and reported `EXIT=0`; after switching to `pathToFileURL` the same
+command prints the full report and `test/cli.test.mjs` asserts on report contents. | recorded
+2026-09-27 | confidence high*
+
+### JS `\b` is ASCII-only, so every non-English vocabulary built with it has dead branches
+
+`/\b(lưu lại|lưu|không có|hậu quả)\b/i` looks correct and silently never matches half its
+own alternatives: JS defines `\w` as `[A-Za-z0-9_]`, so the `\b` after a character like
+`ư` or `ả` has no word/non-word transition to anchor on. "Lưu lại" matched only because it
+ends in ASCII `i`; "lưu", "không có" and "hậu quả" could never match, so a Vietnamese caption
+was graded as having no CTA and no hook word. For any non-ASCII language use
+`(?<![\p{L}\p{N}])` / `(?![\p{L}\p{N}])` as the boundary, and pin each alternative with a test
+that feeds one sample word per branch - a table that looks right in review is not a check.
+
+*tags: regex, unicode, i18n, silent-failure, testing | evidence: `analyzeCaption("... Lưu lại 🔖", {lang:"vi"})`
+reported `cta` failed while the same string graded `6/6` elsewhere, and a pack debug run showed
+`failed: cta(no call to action)` on a caption that visibly ends in "Lưu lại"; after the
+lookaround fix, `test/caption.test.mjs` "every vietnamese alternative is reachable" walks 16 hook
+words and 7 CTA labels and passes. | recorded 2026-09-27 | confidence high*
+
+### A shared `/g` regex with `.test()` makes a rubric non-deterministic across calls
+
+Module-level vocabulary regexes carrying the `g` flag kept `lastIndex` between calls, so
+`.test(body)` returned true for one caption and false for the next - a caption rubric that
+disagreed with itself. Symptom: within one generated pack, identical captions reported
+different scores. `g` is only needed for `matchAll`; drop it for `.test()`, or build a fresh
+`new RegExp(source, flags)` per call. The regression test asserts the same caption grades
+identically over five consecutive calls and that every item in one pack shares one rubric.
+
+*tags: regex, stateful-regex, testing, determinism, silent-failure | evidence: a vi pack printed
+`rubric 6/6` from one invocation and `failed: cta` from a second invocation of the same string;
+after removing `g` from the shared patterns, `test/pack.test.mjs` "grading is stateless" holds
+for 5 consecutive calls in both languages. | recorded 2026-09-27 | confidence high*
+
+## doctrine
+
+### A map of tools must be measured against the machine it is read on
+
+A skill is prose, and prose cannot fail a test, so a map of "canonical picks" drifts into a list
+of good intentions: here it recommended `rg` for repository search and `diff3` for three-way
+merges, and neither runs on this machine. `rg` is the worse of the two, because `where rg` finds
+it at a WinGet link with no executable behind it, so it looks installed, gets planned around, and
+fails at the first real call — the one failure mode a "does it resolve" check cannot see. The fix
+is not a better table, it is a table that is executed: `skills/proven-engineering/scripts/probe.mjs`
+runs every tool the skill names, and `skill.test.mjs` fails when the script and the prose disagree.
+The language claims need the same treatment, because no host can change them and so nothing would
+catch an edit that inverts one: the ASCII-only `\b`, the fold-after-decompose order and the
+stateful `/g` predicate are assertions now.
+
+*tags: skills, documentation, rot, platform, verification, negative-control | evidence: the
+pre-rewrite skill named `rg` and `diff3`; `where rg` reports a path under
+`AppData\Local\Microsoft\WinGet\Links` while `spawnSync("rg", ["--version"])` returns `ENOENT`,
+and `diff3` is not on PATH at all. The new `skill.test.mjs` fails 2 of 10 assertions against the
+pre-rewrite SKILL.md ("the platform table is present…", and the references check) and passes 10/10
+against the rewrite; `npm test` is 39/39, and a clean clone with no `node_modules` is 37 pass /
+2 skipped / exit 0. | recorded 2026-09-28 | confidence high*
+
+### A checker that never ran the thing reports agreement, which reads as evidence
+
+The probe that became `scripts/probe.mjs` shipped a first draft whose `args` omitted the program
+name, so every row spawned `--version` as a command and got `ENOENT`. All nine rows reported
+"absent" — and the three rows the table already expected to be absent *matched*, so the run exited
+0 over a fully green table that had never executed a single tool. That is worse than no checker,
+because a green run is read as a result. Two habits follow: a negative control on every comparison
+(hold the real observations, invert one expectation, require it to be named), and reading the
+failure mode of a passing row rather than its verdict. `drift(observations, table)` and
+`brokenClaims(observations, table)` take the table as an argument for exactly that reason.
+
+*tags: testing, fixtures, negative-control, false-evidence, skills | evidence: the first probe run
+printed `DRIFT node absent (skill says present) ENOENT` six times and `OK` three times, exit 1;
+after adding the program name, 9/9 verdicts matched, exit 0. The claims checker was falsified
+separately: inverting one expected value from 1 to 7 made `brokenClaims` report exactly that one
+claim and nothing else, exit 0. | recorded 2026-09-28 | confidence high*
