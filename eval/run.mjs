@@ -9,14 +9,14 @@
  * A fixture declares its own pre-state in `precondition.txt`, and the pre-state is verified
  * before the run. A broken fixture is reported as invalid, never as a pass:
  *
- *   check-fails   the check must fail now            (the defect is visible to the suite)
- *   check-passes  the check must pass now            (the suite is green, the spec is not met)
+ *   check-fails   the check must fail now            (the defect is visible to the check)
+ *   check-passes  the check must pass now            (the check is green, the contract is not met)
  *   no-suite      the project must have no test file (and must have one afterwards)
- *   no-check      there is nothing to run; the deliverable named in `deliverable.txt` must appear
  *
- * The `no-check` postcondition is what keeps a fixture honest for work that is not testable — a
- * page, a document, a config. "It exists and is real" is weak, and it is the only thing a
- * mechanical check can honestly ask.
+ * `check.txt` holds a command line; `{root}` is replaced with this repository, so a check can
+ * live here and run against the copied project. An exit code of 77 means the check itself could
+ * not run — a missing capability, most often a browser — and is reported as a harness error, so
+ * a machine that cannot render a page is told so rather than quietly passing it.
  *
  * Usage: node eval/run.mjs [--only <fixture>] [--model <provider/model>] [--show] [--keep]
  */
@@ -57,7 +57,27 @@ const testFiles = (dir) =>
     ? fs.readdirSync(dir, { recursive: true }).filter((f) => /\.(test|spec)\.[cm]?js$/.test(f)).length
     : 0;
 
+/** A fixture's check is a command line, so it is handed to the shell, which parses both a bare
+ *  binary and a line with arguments. `{root}` points at this repository. */
+function runCheck(commandLine, cwd) {
+  const result = spawnSync(commandLine.replaceAll("{root}", ROOT), {
+    cwd,
+    encoding: "utf8",
+    timeout: CHECK_TIMEOUT_MS,
+    shell: true,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  return { code: result.status ?? (result.error ? 1 : 0), out: `${result.stdout ?? ""}${result.stderr ?? ""}` };
+}
+
+/** The check could not run at all: a capability is missing, not a defect. */
+const CAPABILITY_ABSENT = 77;
+
 const readIf = (file, fallback) => (fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : fallback);
+
+/** One line out of a check's own output, so the eval reports what the check actually said rather
+ *  than a test-runner pattern that a page check will never match. */
+const summarise = (out) => (out.match(/^(console|requests|viewport)\s+.*$/gm) ?? []).slice(0, 3).join(", ");
 
 const names = fs
   .readdirSync(FIXTURE_ROOT, { withFileTypes: true })
@@ -79,7 +99,6 @@ for (const name of names) {
   const expect = readIf(path.join(dir, "expect.txt"), ".");
   const check = readIf(path.join(dir, "check.txt"), "node --test");
   const precondition = readIf(path.join(dir, "precondition.txt"), "check-fails");
-  const deliverable = readIf(path.join(dir, "deliverable.txt"), "");
   const target = path.join(workdir, name);
   fs.cpSync(path.join(dir, "project"), target, { recursive: true });
 
@@ -88,8 +107,11 @@ for (const name of names) {
     continue;
   }
 
-  const usesCheck = precondition !== "no-check";
-  const before = usesCheck ? run(check, [], target, CHECK_TIMEOUT_MS) : { code: 0, out: "" };
+  const before = runCheck(check, target);
+  if (before.code === CAPABILITY_ABSENT) {
+    results.push({ name, errored: `the check could not run before the fixture: ${before.out.trim().split("\n").pop()}` });
+    continue;
+  }
   const beforeTests = testFiles(target);
   const preOk =
     precondition === "check-fails"
@@ -98,9 +120,7 @@ for (const name of names) {
         ? before.code === 0
         : precondition === "no-suite"
           ? beforeTests === 0
-          : precondition === "no-check"
-            ? Boolean(deliverable)
-            : false;
+          : false;
   if (!preOk) {
     results.push({
       name,
@@ -118,32 +138,30 @@ for (const name of names) {
     results.push({ name, errored: `the run never started: ${notRun[0]} (is the model ref valid?)` });
     continue;
   }
-  const after = usesCheck ? run(check, [], target, CHECK_TIMEOUT_MS) : { code: 0, out: "" };
+  const after = runCheck(check, target);
+  if (after.code === CAPABILITY_ABSENT) {
+    results.push({ name, errored: `the check could not run after the fixture: ${after.out.trim().split("\n").pop()}` });
+    continue;
+  }
   const afterTests = testFiles(target);
   const verdicts = CRITERIA.map((criterion) => [criterion.name, criterion.test(agent.out, expect)]);
   // Derived from the same facts as the verdict, so the printed detail can never contradict it.
-  const delivered = precondition !== "no-check" || (() => {
-    const file = path.join(target, deliverable);
-    return fs.existsSync(file) && fs.statSync(file).size >= 200;
-  })();
   const nothingPinned = precondition === "no-suite" && afterTests === 0;
-  const stillFailing = usesCheck && after.code !== 0;
-  const workDone = !stillFailing && !nothingPinned && delivered;
+  const stillFailing = after.code !== 0;
+  const workDone = !stillFailing && !nothingPinned;
   const passed = workDone && verdicts.every(([, ok]) => ok);
   results.push({
     name,
     passed,
     verdicts,
     tests: afterTests,
-    summary: (after.out.match(/(tests|pass|fail)\s+\d+/g) ?? []).slice(0, 3).join(", "),
+    summary: (after.out.match(/(tests|pass|fail)\s+\d+/g) ?? []).slice(0, 3).join(", ") || summarise(after.out),
     tail: agent.out.trim().split("\n").slice(-16).join("\n"),
-    detail: !delivered
-      ? `the deliverable ${deliverable || "(unnamed)"} was never created, or is too small to be the thing asked for`
-      : nothingPinned
-        ? "the run added no test file, so nothing was pinned"
-        : stillFailing
-          ? `the check still fails after the run:\n${after.out.trim().split("\n").slice(0, 6).join("\n")}`
-          : undefined,
+    detail: nothingPinned
+      ? "the run added no test file, so nothing was pinned"
+      : stillFailing
+        ? `the check still fails after the run:\n${after.out.trim().split("\n").slice(0, 8).join("\n")}`
+        : undefined,
     error: agent.error,
   });
 }
@@ -185,10 +203,17 @@ const notes = [
 
 console.log(`\n${passed.length}/${scored.length} fixtures scored clean${notes.length ? `, ${notes.join(", ")}` : ""}\n`);
 
+// Cleanup is best effort and never part of the verdict. A browser that has not finished exiting
+// can still hold a handle on a file inside the workdir, and a clean eval must not be reported as
+// a failure because a temp directory would not delete.
 if (keep) {
   console.log(`workdir kept: ${workdir}`);
 } else {
-  fs.rmSync(workdir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  try {
+    fs.rmSync(workdir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  } catch (error) {
+    console.log(`could not remove the workdir (${error.code ?? error.message}); delete it yourself: ${workdir}\n`);
+  }
 }
 
 // An invalid fixture is a failure of the harness, not a pass. Neither is a run that never

@@ -192,6 +192,33 @@ Editing package.json in place with `(Get-Content -Raw) -replace ... | Set-Conten
 
 *tags: powershell, windows, encoding, bom, json, packaging | evidence: after the edit, `node -e "require('./package.json')"` failed with `SyntaxError: Unexpected token '', "{ "name"... is not valid JSON`; the file's first three bytes were EF BB BF. A repo-wide scan found one BOM'd file, removed with WriteAllText(UTF8Encoding(false)), and the assertion now walks every .md/.json/.jsonc/.mjs/.js/.txt file. | recorded 2026-09-27 | confidence high*
 
+### Never change the environment of the thing you are testing
+
+A browser test failed for 63 seconds with a `SingletonLock` error, then an EPERM on its own
+profile directory. The checker was fine: launched from a plain script with the same arguments it
+finished in 1.7 seconds. The cause was the plugin test file's `before()` hook, which points
+USERPROFILE and HOME at a sandbox so the plugin's state directory never touches the real one — and
+a browser started under that redirected home cannot initialise. Fixed by moving the browser tests
+into their own file that never redirects anything; 26 assertions in 8 seconds instead of a
+1-minute failure. The general rule: a test that mutates global environment state is testing
+something other than the unit it names, and the symptom appears in a dependency that has no idea
+it is being tested under artificial conditions.
+
+*tags: node, test, environment, isolation, browser, debugging | evidence: same command, same arguments, real home -> status 0 in 1705ms; with USERPROFILE and HOME pointed at an empty temp dir -> status 1 in 30632ms with `EPERM ... flowcode-browser-4FmZCH`. After splitting eval/page-check.test.mjs out of plugins/coding-flow.test.mjs: 26 pass, 0 fail, 0 skipped, 8s. | recorded 2026-09-27 | confidence high*
+
+### A broken fixture produces a confident false reading
+
+Wiring a capability into a measurement, the first reading said the delivery mechanism was broken:
+a probe showed the injected note absent from every model request. The mechanism was fine — the
+throwaway config used to hold the probe never received the file the note's guard checks for, so
+`existsSync` correctly suppressed the line. Two steps of chasing a non-bug followed. The rule: when
+a measurement disagrees with the theory, verify the measurement's own inputs before concluding
+anything about the system — `Test-Path` on the file, the precondition a fixture declares, the exit
+code a child actually returned. A harness that has not checked itself is not evidence, and the
+failure mode is the worst kind: a clean, specific, wrong conclusion.
+
+*tags: verification, fixtures, probes, false-negative, debugging, harness | evidence: probe reported `parts: 5, hasNote: false`; `Test-Path` on the same config's eval directory returned False, and after copying the file in, the same probe reported `parts: 6, hasNote: true, hereMatches: true`. The earlier lesson applies too: a rejected hypothesis is only worth writing down after the harness's own inputs are checked. | recorded 2026-09-27 | confidence high*
+
 ## semantic
 
 ### Case folding must run after Unicode decomposition, never before

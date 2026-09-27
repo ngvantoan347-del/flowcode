@@ -76,11 +76,55 @@ Every thought has a reason to exist, every action creates value, every capabilit
 Not everything needs to grow. Not every problem needs another tool. Not every process needs to be
 stretched. And when the result is good, stop — not because tokens ran out.
 
+## Seeing a page, not just its markup
+
+Some work has no failing test. A landing page is the obvious case: there is no suite to run, so
+"prove it" has nothing to point at, and a model left with only that either skips verification or
+falls into a loop of looking at itself. That is a blind spot in the environment, and the fix is to
+notice it and go get the capability rather than to soften the requirement.
+
+```sh
+node eval/page-check.mjs index.html --width 360
+```
+
+It drives a real browser — the Chrome or Edge already installed, not a 300 MB download — and fails
+on anything a text diff cannot see:
+
+```
+rendered   file:///.../index.html
+title      Cà Phê Lý Thường Kiệt
+text       312 characters
+console    0 error(s)
+requests   0 failed, 0 uncaught
+viewport   360px, no overflow
+screenshot C:\Users\...\Temp\page-check-index-html.360.png
+PASS
+```
+
+Console errors, uncaught exceptions, dead requests, and horizontal overflow on a phone viewport all
+fail it. So does a missing file, and it names the file rather than blaming the driver. A page that
+never finishes loading is a defect, not an infrastructure error.
+
+Two details that are part of the design rather than polish. It uses a browser profile of its own,
+because a leftover profile carries a lock that makes the next launch fail with "the browser is
+already running" — a flake that only appears after a few runs. And it terminates the process it
+started: a verifier that leaks browsers is not a verifier. Nothing here is special-cased for pages
+either; the same script checks any URL.
+
+The capability is advertised to the agent in every request when the file is present, because a
+capability the agent cannot know about is one it cannot use. A check that cannot run says so with
+exit code 77 — a machine with no browser is told that, rather than quietly passing the one fixture
+that needs one.
+
+The eval's `check.txt` is a command line, so any fixture can use this or any other tool:
+`node "{root}/eval/page-check.mjs" index.html --width 360`, with `{root}` pointing at this
+repository.
+
 ## Check it
 
 ```sh
 npm run doctor   # is this setup healthy; each failure carries its fix
-npm test         # 19 assertions, offline, under a second
+npm test         # 26 assertions; the three browser ones skip cleanly with no browser
 npm run eval     # 5 behaviour fixtures, one real task each
 ```
 
@@ -141,6 +185,10 @@ The prompt was wrong and the reviewer said so, with a reproduction, instead of a
   needed a browser tab, and a headless run never entered the loop: the same task measured 11
   requests and 21s idle before the change, 12 and 35s after. The rules name the stop condition and
   the ratio makes a future loop visible, but no run here has looped to prove the fix.
+- **The agent was told about the browser check and did not reach for it.** In one run it verified
+  its page with a `node -e` grep for tags instead. The harness verifies rendered output either way;
+  that the model chooses a cheaper check of its own is unproven either way, and forcing the choice
+  through the prompt was not worth doing.
 - **Compaction survival is argued, not measured.** The flow is re-injected on every request,
   observed 16 of 16 in a long run, and the injection comes from the plugin rather than the
   transcript. No test here triggered a real compaction: `keep.tokens` is the budget to keep, not
@@ -169,5 +217,6 @@ and writes atomically. A posture round trip restores the file byte for byte, whi
 ## Repository
 
 `AGENTS.md` doctrine · `agents/` seven modes, `max` by default · `skills/proven-engineering` the
-canonical pick per problem class · `eval/` the runner and its five fixtures · `LESSONS.md` rules
-that survived a check. `service.json`, `node_modules/`, and `.rollback/` are local and ignored.
+canonical pick per problem class · `eval/` the runner, its six fixtures, and the browser check
+`page-check.mjs` · `LESSONS.md` rules that survived a check. `service.json`, `node_modules/`, and
+`.rollback/` are local and ignored.

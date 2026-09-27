@@ -19,6 +19,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * @opencode/plugin's define() is `plugin => plugin` — an identity helper that exists for
@@ -26,6 +27,9 @@ import path from "node:path";
  * whole flow, so the shape is declared locally and the package stays a dev-only type source.
  */
 const define = (plugin) => plugin;
+
+/** The config root: this plugin lives in <root>/plugins/. */
+const CONFIG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 //#region state
 const STATE_DIR = path.join(os.homedir(), ".local", "share", "opencode", "coding-flow");
@@ -41,8 +45,16 @@ const AUTONOMOUS_AGENTS = new Set(["max"]);
 /** The tool that would let the model stop and ask instead of deciding. */
 const QUESTION_TOOL = "question";
 
-const RULES = [
-  "CODING FLOW (internal discipline, never narrated): understand the real goal and the real code",
+/**
+ * A capability the agent cannot be expected to use if it does not know it exists. Sent only when
+ * the checker is really there, and kept to one line: it is worth far more than it costs, because
+ * without it a page task has no check to reach for and the run resorts to looking at itself.
+ */
+const PAGE_CHECK = path.join(CONFIG_ROOT, "eval", "page-check.mjs");
+const VERIFIER_NOTE =
+  "Check a page for real: `node eval/page-check.mjs <file>` loads it in a browser and fails on console errors, dead requests, or phone-width overflow.";
+
+const RULES = [  "CODING FLOW (internal discipline, never narrated): understand the real goal and the real code",
   "before touching anything; pick the approach that is already proven (standard library, a",
   "battle-tested library, the canonical algorithm) and name what you reused; implement it",
   "completely; change only what a failing check points at, because code whose test already passed",
@@ -121,6 +133,7 @@ export default define({
     // compression the rules must still be present, and tokens are not the constraint.
     ctx.session.hook("context", (event) => {
       event.system.push({ type: "text", text: RULES });
+      if (fs.existsSync(PAGE_CHECK)) event.system.push({ type: "text", text: VERIFIER_NOTE });
 
       if (AUTONOMOUS_AGENTS.has(event.agent) && event.tools && QUESTION_TOOL in event.tools) {
         delete event.tools[QUESTION_TOOL];

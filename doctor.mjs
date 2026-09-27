@@ -29,21 +29,28 @@ check("node runtime", major >= 20, `node ${process.versions.node}`, "install Nod
 //#endregion
 
 // #region wiring, delegated to the test suite
-// node.exe lives under "C:\Program Files", so it must be spawned directly: a shell would split
-// the path on the space and the run would fail for a reason that has nothing to do with the setup.
-const tests = sh(process.execPath, ["--test", "plugins/coding-flow.test.mjs"], { shell: false });
-const failedAssertions = (tests.stdout ?? "")
-  .split("\n")
-  .filter((line) => line.includes("✖"))
-  .slice(0, 2)
-  .join(" | ");
-const assertionCount = (tests.stdout ?? "").match(/tests\s+(\d+)/)?.[1];
-check(
-  "wiring (npm test)",
-  tests.status === 0,
-  tests.status === 0 ? `${assertionCount ?? "?"} assertions pass` : `exit ${tests.status}${failedAssertions ? `: ${failedAssertions.trim()}` : ""}`,
-  "run `npm test` and read the failing assertion; it names the file and line",
-);
+// node.exe lives under "C:\Program Files", so it is spawned directly: a shell would split the path
+// on the space. The command comes from package.json so the two cannot drift apart and doctor
+// cannot quietly under-report what the project's own `npm test` would run.
+const testScript = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).scripts?.test;
+if (!testScript) {
+  check("wiring (npm test)", false, "package.json has no test script", "add one, or run the suite by hand");
+} else {
+  const npm = WINDOWS ? "npm.cmd" : "npm";
+  const tests = sh(npm, ["test", "--silent"], { shell: true });
+  const failedAssertions = (tests.stdout ?? "")
+    .split("\n")
+    .filter((line) => line.includes("✖"))
+    .slice(0, 2)
+    .join(" | ");
+  const assertionCount = (tests.stdout ?? "").match(/tests\s+(\d+)/)?.[1];
+  check(
+    "wiring (npm test)",
+    tests.status === 0,
+    tests.status === 0 ? `${assertionCount ?? "?"} assertions pass` : `exit ${tests.status}${failedAssertions ? `: ${failedAssertions.trim()}` : ""}`,
+    "run `npm test` and read the failing assertion; it names the file and line",
+  );
+}
 //#endregion
 
 // #region plugin liveness

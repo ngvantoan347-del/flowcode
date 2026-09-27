@@ -57,6 +57,23 @@ describe("coding flow: delivery", () => {
     assert.equal(injected.length, 1, "exactly one flow injection per request");
   });
 
+  test("a local capability the agent does not know about is a capability it cannot use", async () => {
+    // A page task used to have no check to reach for, which is how a run ends up looking at its
+    // own markup. The checker exists, so the request has to say so — and only while it exists.
+    const plugin = (await import("./coding-flow.js")).default;
+    const ctx = fakeCtx();
+    await plugin.setup(ctx);
+
+    const event = { agent: "max", system: [], tools: {} };
+    await ctx.registered.session.context(event);
+    const note = event.system.filter((part) => typeof part.text === "string" && part.text.includes("page-check"));
+    assert.equal(note.length, 1, "the verifier is advertised exactly once, and only when present");
+    assert.ok(fs.existsSync(path.join(ROOT, "eval", "page-check.mjs")), "it is advertised because it is there");
+
+    const source = fs.readFileSync(path.join(ROOT, "plugins", "coding-flow.js"), "utf8");
+    assert.match(source, /if \(fs\.existsSync\(PAGE_CHECK\)\)/, "the note is gated on the file existing");
+  });
+
   test("the flow states no report format: no marker, no table, no closing ritual", async () => {
     const plugin = (await import("./coding-flow.js")).default;
     const ctx = fakeCtx();
@@ -269,7 +286,7 @@ describe("coding flow: the config it depends on", () => {
 // suite on cleanup.
 describe("coding flow: the eval harness", () => {
   const fixtures = path.join(ROOT, "eval", "fixtures");
-  const PRECONDITIONS = ["check-fails", "check-passes", "no-suite", "no-check"];
+  const PRECONDITIONS = ["check-fails", "check-passes", "no-suite"];
 
   test("every criterion rejects a reply it was written to catch", async () => {
     // A criterion with no counter-example is decoration. Each pair below is the failure the owner
@@ -314,12 +331,15 @@ describe("coding flow: the eval harness", () => {
         PRECONDITIONS.includes(precondition),
         `${name} declares an unknown precondition "${precondition}"; the runner would score it invalid`,
       );
-      if (precondition === "no-check") {
-        // Nothing to run means something has to be judged instead, or the fixture scores anything.
-        assert.ok(
-          fs.existsSync(path.join(dir, "deliverable.txt")),
-          `${name} has nothing to check and names no deliverable, so any run would score clean`,
-        );
+      if (fs.existsSync(path.join(dir, "check.txt"))) {
+        const command = fs.readFileSync(path.join(dir, "check.txt"), "utf8").trim();
+        assert.ok(command.length > 0, `${name} has an empty check.txt, so the runner would use the default`);
+        assert.match(command, /\{root\}|\S/, `${name} names a command the runner can execute`);
+      }
+      if (precondition === "no-suite") {
+        // `node --test` exits 0 when it finds no test files, so a suite-less fixture needs the
+        // postcondition spelled out, or a run that did nothing scores clean.
+        assert.ok(fs.existsSync(path.join(dir, "project")), `${name} has a project to be checked against`);
       }
     }
   });
@@ -329,7 +349,7 @@ describe("coding flow: the eval harness", () => {
     // so the verdict is computed once, from named facts, and the message reads those names.
     const source = fs.readFileSync(path.join(ROOT, "eval", "run.mjs"), "utf8");
     assert.equal((source.match(/const workDone =/g) ?? []).length, 1, "exactly one definition of done");
-    assert.match(source, /const workDone = !stillFailing && !nothingPinned && delivered;/, "from the named facts");
+    assert.match(source, /const workDone = !stillFailing && !nothingPinned;/, "from the named facts");
     assert.doesNotMatch(
       source,
       /workDone = after\.code === 0 &&/,

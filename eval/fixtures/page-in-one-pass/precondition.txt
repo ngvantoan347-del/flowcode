@@ -1,1 +1,1 @@
-no-check
+check-fails
