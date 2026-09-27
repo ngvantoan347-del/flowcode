@@ -93,7 +93,10 @@ function run(args, dir) {
  *  different words: a tool that is not installed is absent, and a tool whose PATH entry is a dead
  *  shim is worse, because it looks installed. `rg` here is exactly that case. */
 function onPath(program) {
-  const found = spawnSync("where.exe", [program], { encoding: "utf8", timeout: 15_000, shell: true });
+  // `shell: false`: the program name comes from a literal table, but a shell would be a quoting
+  // surface for no benefit, and `where` on Windows and `which` elsewhere are both real executables.
+  const lookup = process.platform === "win32" ? "where.exe" : "which";
+  const found = spawnSync(lookup, [program], { encoding: "utf8", timeout: 15_000, shell: false });
   return found.status === 0 ? (found.stdout ?? "").split(/\r?\n/).filter(Boolean)[0] ?? "" : "";
 }
 
