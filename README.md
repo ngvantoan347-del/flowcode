@@ -11,6 +11,7 @@ failing check points at, and answer with the evidence.
 | --- | --- | --- |
 | Doctrine | `AGENTS.md` | Always loaded. Contract, autonomy, proven-first engineering, evidence. |
 | Mode | `agents/max.md` | The default agent. Full access, one-shot, does not hand work back. |
+| Map | `skills/proven-engineering` | The canonical pick per problem class, with the traps that cost real debugging time. |
 | Delivery | `plugins/coding-flow.js` | Injects the non-negotiable part into every model request through the V2 `session.hook("context")` hook, so it survives compaction. |
 | Mechanism | `plugins/coding-flow.js` | Removes the `question` tool from every `max` request. A model with no way to ask cannot stop to ask. |
 | Measurement | `plugins/coding-flow.js` | Appends anomalies to a local JSONL log, and samples tool calls against file changes. Nothing is printed into the reply. |
@@ -29,7 +30,7 @@ git clone https://github.com/ngvantoan347-del/flowcode.git ~/.config/opencode
 
 That is the whole install. The plugin imports Node builtins only, so a bare clone already works and
 `npm install` is optional, existing only to pull `@opencode/plugin` for editor type-checking and
-`puppeteer-core` for the browser check below. Without the latter, a fresh clone passes 27 of its 29
+`puppeteer-core` for the browser check below. Without the latter, a fresh clone passes 37 of its 39
 assertions, skips the two that need a browser, and `eval/page-check.mjs` exits 77 saying which
 package is missing. An earlier version imported that package at runtime, and a clone without an
 install step failed with `ERR_MODULE_NOT_FOUND` and lost the flow silently. `npm test` now pins that
@@ -158,8 +159,8 @@ headlessly.
 
 ```sh
 npm run doctor   # is this setup healthy; each failure carries its fix
-npm test         # 29 assertions; the three browser ones skip cleanly with no browser
-npm run eval     # 5 behaviour fixtures, one real task each
+npm test         # 39 assertions; two need a browser and skip cleanly without one
+npm run eval     # 6 behaviour fixtures, one real task each
 ```
 
 `npm run eval` is the one that measures the claim rather than the wiring. Each fixture is a small
@@ -250,9 +251,46 @@ node safe-mode.mjs --off      # full access
 The switch locates the permissions array with one rule, validates the result as JSONC, backs up,
 and writes atomically. A posture round trip restores the file byte for byte, which is a test.
 
+## The map, and how it stays true
+
+`skills/proven-engineering` is the answer to "which one do I use, and what is the trap". It is a
+skill rather than a paragraph because it loads on demand: the model sees only its name and
+description until it decides the task needs it, so the description is written to trigger on the
+moment of hand-rolling something that already exists.
+
+What separates it from a list of good intentions is that its claims are executed.
+
+```sh
+node skills/proven-engineering/scripts/probe.mjs
+```
+
+```
+  OK   node            present (skill says present)
+  OK   git grep        present (skill says present)
+  OK   rg              absent (skill says absent)
+  ...
+9/9 tools match the skill's table
+  OK   `\b` is ASCII-only, so an alternative ending in a non-ASCII letter can never match
+  ...
+10/10 documented claims still hold
+```
+
+It checks two things, because both rot silently. The first is whether a tool the skill recommends
+actually runs: the table once named `rg` for repository search, and on this machine `rg` resolves
+to a WinGet link with no executable behind it — it looks installed, so it gets planned around, and
+it fails at the first real call. The second is the skill's language claims, which no host can
+change and which therefore nothing would ever catch: the ASCII-only `\b`, the case-folding order,
+the stateful `/g` predicate. A rule written down and never run is a rule an edit can invert while
+every example still reads correctly.
+
+`skills/proven-engineering/skill.test.mjs` runs both, and each of its two comparisons is proved
+capable of failing: the real observations are held and then fed a table with one expectation
+inverted, so "no drift" is a result rather than a shape that can only come out true. The same suite
+fails against the previous version of the skill, naming the verification that was missing.
+
 ## Repository
 
 `AGENTS.md` doctrine · `agents/` seven modes, `max` by default · `skills/proven-engineering` the
-canonical pick per problem class · `eval/` the runner, its six fixtures, and the browser check
-`page-check.mjs` · `LESSONS.md` rules that survived a check. `service.json`, `node_modules/`, and
-`.rollback/` are local and ignored.
+canonical pick per problem class, its three references, and the probe that keeps it honest ·
+`eval/` the runner, its six fixtures, and the browser check `page-check.mjs` · `LESSONS.md` rules
+that survived a check. `service.json`, `node_modules/`, and `.rollback/` are local and ignored.

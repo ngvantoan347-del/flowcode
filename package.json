@@ -6,7 +6,7 @@
   "scripts": {
     "posture": "node safe-mode.mjs --status",
     "doctor": "node doctor.mjs",
-    "test": "node --test plugins/coding-flow.test.mjs eval/page-check.test.mjs eval/serve.test.mjs",
+    "test": "node --test plugins/coding-flow.test.mjs eval/page-check.test.mjs eval/serve.test.mjs skills/proven-engineering/skill.test.mjs",
     "eval": "node eval/run.mjs"
   },
   "devDependencies": {
