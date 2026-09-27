@@ -29,7 +29,7 @@ git clone https://github.com/ngvantoan347-del/flowcode.git ~/.config/opencode
 
 That is the whole install. The plugin imports Node builtins only, so a bare clone already works and
 `npm install` is optional, existing only to pull `@opencode/plugin` for editor type-checking and
-`puppeteer-core` for the browser check below. Without the latter, a fresh clone passes 24 of its 26
+`puppeteer-core` for the browser check below. Without the latter, a fresh clone passes 27 of its 29
 assertions, skips the two that need a browser, and `eval/page-check.mjs` exits 77 saying which
 package is missing. An earlier version imported that package at runtime, and a clone without an
 install step failed with `ERR_MODULE_NOT_FOUND` and lost the flow silently. `npm test` now pins that
@@ -123,11 +123,39 @@ The eval's `check.txt` is a command line, so any fixture can use this or any oth
 `node "{root}/eval/page-check.mjs" index.html --width 360`, with `{root}` pointing at this
 repository.
 
+## Opening a local file in a tab
+
+`browser.tabs.open` accepts only http(s) and `about:blank`, so a file on disk cannot be opened in a
+tab. An agent that reaches for a `file://` URL spends a turn learning that from an error, so the
+capability is here instead of the rule:
+
+```sh
+node eval/serve.mjs <dir>          # prints the URL to open
+node eval/serve.mjs <dir> --port 0 # let the OS pick, which is safer on a busy machine
+```
+
+```
+serving C:\Users\ADMIN\Desktop\lap
+  http://127.0.0.1:8137/
+  a local file cannot be opened in a tab with a file:// URL; use this one
+```
+
+The listener binds `127.0.0.1` only — a source tree is not something to expose to a network — and
+every resolved path is checked against the root, so `/../secret.txt` and four other spellings of
+the same walk all return 404. A directory with no `index.html` serves its one page, or lists what is
+there, because a 404 at the root reads as a broken server. Three assertions cover it, and they need
+no browser.
+
+The last hop is the honest gap: whether a tab actually renders the served page was not verified
+here, because no desktop browser is connected to the session that wrote this. That is the same
+condition that produced the original error, and it is the part `page-check.mjs` exists to cover
+headlessly.
+
 ## Check it
 
 ```sh
 npm run doctor   # is this setup healthy; each failure carries its fix
-npm test         # 26 assertions; the three browser ones skip cleanly with no browser
+npm test         # 29 assertions; the three browser ones skip cleanly with no browser
 npm run eval     # 5 behaviour fixtures, one real task each
 ```
 

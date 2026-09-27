@@ -219,6 +219,23 @@ failure mode is the worst kind: a clean, specific, wrong conclusion.
 
 *tags: verification, fixtures, probes, false-negative, debugging, harness | evidence: probe reported `parts: 5, hasNote: false`; `Test-Path` on the same config's eval directory returned False, and after copying the file in, the same probe reported `parts: 6, hasNote: true, hereMatches: true`. The earlier lesson applies too: a rejected hypothesis is only worth writing down after the harness's own inputs are checked. | recorded 2026-09-27 | confidence high*
 
+### A tool's rejection message is a capability gap, not a mistake to retry
+
+An agent tried to open a local file with `browser.tabs.open` and got "Invalid browser URL... file://
+paths are not browser URLs". It had chosen a tool that cannot do what it wanted, and paid a turn
+learning that. The fix is not a rule telling it to remember: `eval/serve.mjs` serves any directory
+over 127.0.0.1 with no dependency, so a local file has a URL the tool already accepts. Serving a
+source tree is a security problem if done carelessly, so the bind is loopback only and every
+resolved path is checked against the root; four spellings of traversal all return 404 and none leak
+a file above the root. The rule worth keeping: when a tool refuses an input shape, the first
+question is whether the environment lacks the capability that input implies, not which other tool
+might be coaxed into the same refusal. And the limit to state: the final hop, a browser tab actually
+rendering the served page, could not be verified here because no desktop browser is connected to
+this session — the same condition that produced the error. What is verified is the URL, the bytes,
+and the refusal of every escape.
+
+*tags: browser, tool-contract, local-file, security, traversal, capability | evidence: served the actual Crystal Cavern page from the failed run: `/` and `/crystal-cavern.html` both 200, 21832 bytes, title `Crystal Cavern - 3D Adventure`; `/../secret.txt`, `/..%2Fsecret.txt`, `/%2e%2e/secret.txt`, `/....//secret.txt` all 404 with no leak; listener bound to 127.0.0.1; 29 assertions including three that start the server on port 0 and fetch it. | recorded 2026-09-27 | confidence high*
+
 ## semantic
 
 ### Case folding must run after Unicode decomposition, never before
@@ -267,6 +284,22 @@ A DOM/event stub is only evidence if it answers what a browser answers. Four sep
 A regression test that never failed is an assertion, not evidence. Run the same suite against the revision that had the bug and read the failure message: it must name the defect, not a missing element. For vuiton this was a one-line harness option (`VUITON_APP_PATH`) plus the pre-upgrade `app.mjs` extracted from a backup, which turned "the test passes" into "22 of 24 fail, and the two defect tests fail with `434 !== 44` and `'scene' !== 'build'`" â€” the first being exactly the 390px panel offset, the second the missing arrow-key listener.
 
 *tags: testing, evidence, regression, harness, f2 | evidence: VUITON_APP_PATH=<pre-upgrade app.mjs> node --test tests/app.test.mjs -> pass 2 fail 22; the same command on the current tree -> pass 24 fail 0. | recorded 2026-09-26 | confidence high*
+
+### On a phone, an overflowing page widens the layout viewport, so the overflow stops being measurable
+
+A mobile overflow check that reads `document.documentElement.scrollWidth` against `window.innerWidth`
+passes on a page that genuinely overflows: Chrome widens the layout viewport to the content, so both
+numbers become 900 and the comparison reads 900 <= 900. Two things hide it at once - `<meta
+name="viewport" content="width=device-width">` plus `overflow-x: hidden` on `body`, where the body
+overflow propagates to the viewport and the element's own scroll width stops being the page's.
+Assert the layout viewport instead: `innerWidth` must still equal the device width, and measure
+overflow with `body.style.overflowX` forced to `visible` plus a scan for elements whose rect crosses
+the viewport, skipping any element inside a scrollable ancestor (that is what legitimately absorbs a
+wide table). | tags: testing, mobile, overflow, viewport, harness, measurement | evidence: injecting
+`<div style="width:900px">` at 390px reported `scrollWidth 900 vs 900` and the check passed 26/26;
+after the condition became `innerWidth === 390 && scrollWidth <= innerWidth + 1 && offenders === 0`
+the same run reported `FAIL layout viewport stays at the device width - innerWidth 900` and exit 1,
+while the clean run stayed 28/28. | recorded 2026-09-27 | confidence high*
 
 ## ui
 
@@ -467,3 +500,19 @@ used only for indexes and state, at most two dark surfaces, no element on an inf
 type scale that is strictly decreasing, one hairline, one corner radius, one column edge for the whole
 page. Those are assertions, not taste - encode them, and the design cannot silently drift back into a
 gimmick pile. A green suite proves the page is correct; only the reader proves it is good. | recorded 2026-09-27 | confidence high*
+
+### A binding helper that takes a selector turns a wrong argument into silence
+
+`const on = (sel, type, fn) => $(sel)?.addEventListener(type, fn)` makes `on('scroll', fn)` look
+valid while resolving `document.querySelector('scroll')` to null, so the listener is never
+attached and nothing throws. On this site it left the reading-progress meter at its stylesheet value
+`matrix(0,0,0,1,0,0)` while `scrollY` was already at the maximum - the page looked right and one
+feature was simply dead. Separate the two cases: a `listen(target, type, fn)` for EventTargets and
+window, and keep the selector form only where a node really is meant, pushing every miss onto a
+`missing[]` array the page check asserts is empty, so the next typo is a red run and not a silence.
+
+*tags: ui, javascript, event-handlers, silent-failure, testing | evidence: the meter check reported
+`scaleX` 0 at scrollY 488/14719 and again at 7195/14719, because `on('scroll', setMeter)` had bound
+nothing; after the split the same check reports `scaleX=1 at scrollY 14719/14719`, and the new
+`no script listener bound to a selector that matches nothing` check holds at 28/28. | recorded
+2026-09-27 | confidence high*

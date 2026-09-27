@@ -71,7 +71,12 @@ describe("coding flow: delivery", () => {
     assert.ok(fs.existsSync(path.join(ROOT, "eval", "page-check.mjs")), "it is advertised because it is there");
 
     const source = fs.readFileSync(path.join(ROOT, "plugins", "coding-flow.js"), "utf8");
-    assert.match(source, /if \(fs\.existsSync\(PAGE_CHECK\)\)/, "the note is gated on the file existing");
+    assert.match(
+      source,
+      /if \(fs\.existsSync\(PAGE_CHECK\) && fs\.existsSync\(SERVE\)\)/,
+      "the note names two commands, so it is gated on both files existing",
+    );
+    assert.ok(fs.existsSync(path.join(ROOT, "eval", "serve.mjs")), "and both are really there");
   });
 
   test("the flow states no report format: no marker, no table, no closing ritual", async () => {

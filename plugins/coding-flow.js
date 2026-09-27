@@ -51,8 +51,9 @@ const QUESTION_TOOL = "question";
  * without it a page task has no check to reach for and the run resorts to looking at itself.
  */
 const PAGE_CHECK = path.join(CONFIG_ROOT, "eval", "page-check.mjs");
+const SERVE = path.join(CONFIG_ROOT, "eval", "serve.mjs");
 const VERIFIER_NOTE =
-  "Check a page for real: `node eval/page-check.mjs <file>` loads it in a browser and fails on console errors, dead requests, or phone-width overflow.";
+  "Look a page up for real: `node eval/page-check.mjs <file>` verifies it in a browser (console errors, dead requests, phone-width overflow); `node eval/serve.mjs <dir>` serves it at an http://127.0.0.1 URL, because browser.tabs.open rejects file:// paths.";
 
 const RULES = [  "CODING FLOW (internal discipline, never narrated): understand the real goal and the real code",
   "before touching anything; pick the approach that is already proven (standard library, a",
@@ -133,8 +134,10 @@ export default define({
     // compression the rules must still be present, and tokens are not the constraint.
     ctx.session.hook("context", (event) => {
       event.system.push({ type: "text", text: RULES });
-      if (fs.existsSync(PAGE_CHECK)) event.system.push({ type: "text", text: VERIFIER_NOTE });
-
+      // Both commands are named in the note, so both must exist before it is sent.
+      if (fs.existsSync(PAGE_CHECK) && fs.existsSync(SERVE)) {
+        event.system.push({ type: "text", text: VERIFIER_NOTE });
+      }
       if (AUTONOMOUS_AGENTS.has(event.agent) && event.tools && QUESTION_TOOL in event.tools) {
         delete event.tools[QUESTION_TOOL];
         record({ kind: "question_tool_removed", agent: event.agent, sessionID: event.sessionID });
