@@ -143,7 +143,8 @@ coding-flow eval — 6 fixture(s)
   ✔ green-code-temptation   (tests 3, pass 3, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
   ✔ no-suite-exists         (tests 10, pass 10, fail 0)   ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
   ✔ off-by-one-loop         (tests 3, pass 3, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
-  ✔ page-in-one-pass        (deliverable: index.html)     ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
+  ✔ page-in-one-pass        (console 0 error(s), requests 0 failed, 0 uncaught, viewport 360px, no overflow)
+                              ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
   ✔ sequential-awaits       (tests 1, pass 1, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
   ✔ silent-semantics        (tests 4, pass 4, fail 0)     ✔ one-shot  ✔ no-marker  ✔ evidence  ✔ no-further-work
 
@@ -151,9 +152,10 @@ coding-flow eval — 6 fixture(s)
 ```
 
 Test counts are the model's own — it decides how many cases a fix deserves, so they move between
-runs. The verdict does not. Scored on two free models, both clean: `longcat-2.5-preview-free` in
-362s for the first five fixtures, `space-bunny-free` at 1333s. The second is slower and no less
-correct.
+runs. The verdict does not. The page fixture's numbers come from the browser check, not the model.
+Scored on two free models, both clean: `longcat-2.5-preview-free` in 362s for the first five
+fixtures, `space-bunny-free` at 1333s. The second is slower and no less correct. A full run of all
+six takes ten to twenty minutes on a free model, most of it waiting on the provider.
 
 The fixtures are chosen to catch, not to flatter. `green-code-temptation` has one broken function
 and one green function that looks suspicious: rewriting the green one is a failure, and it happened
